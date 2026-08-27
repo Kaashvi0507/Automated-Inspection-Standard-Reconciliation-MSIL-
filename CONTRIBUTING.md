@@ -5,7 +5,7 @@ Thank you for your interest in contributing! This document outlines our contribu
 ## Getting Started
 
 1. **Fork** the repository
-2. **Clone** your fork: `git clone https://github.com/YOUR-USERNAME/gsis-reconciliation.git`
+2. **Clone** your fork: `git clone https://github.com/Gouravkim/Automated-Inspection-Standard-Reconciliation-MSIL.git`
 3. **Create a virtual environment**:
    ```bash
    python -m venv venv
