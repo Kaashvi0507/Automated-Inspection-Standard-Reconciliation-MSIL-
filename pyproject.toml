@@ -1,0 +1,148 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gsis-reconciliation"
+version = "1.0.0"
+description = "Fully local PDF-to-Excel reconciliation system for Maruti Suzuki GSIS-P & SMIR documents"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Gourav", email = "gourav@example.com"}
+]
+keywords = [
+    "pdf-extraction",
+    "excel-reconciliation",
+    "ocr",
+    "data-validation",
+    "streamlit",
+    "manufacturing",
+    "quality-inspection"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Manufacturing",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business",
+    "Topic :: Multimedia :: Graphics :: Viewers",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "streamlit==1.45.0",
+    "pandas==2.2.3",
+    "numpy==2.3.5",
+    "pdfplumber==0.11.6",
+    "openpyxl==3.1.5",
+    "PyMuPDF==1.28.0",
+    "rapidocr-onnxruntime==1.4.4",
+    "onnxruntime==1.24.4",
+    "sentence-transformers==3.4.1",
+    "wordninja==2.0.0",
+    "docling==2.114.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "black>=23.0",
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "flake8>=6.0",
+    "mypy>=1.0",
+]
+ocr = [
+    "pytesseract>=0.3.10",
+    "opencv-python>=4.8.0",
+    "easyocr>=1.7.0",
+]
+extra = [
+    "rapidfuzz>=3.0.0",
+    "faiss-cpu>=1.7.0",
+    "camelot-py>=0.10.1",
+    "tabula-py>=2.5.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/GouravKim/gsis-reconciliation"
+Documentation = "https://github.com/GouravKim/gsis-reconciliation#readme"
+Repository = "https://github.com/GouravKim/gsis-reconciliation.git"
+Issues = "https://github.com/GouravKim/gsis-reconciliation/issues"
+Changelog = "https://github.com/GouravKim/gsis-reconciliation/releases"
+
+[tool.setuptools]
+packages = ["gsis_reconciliation"]
+include-package-data = true
+
+[tool.black]
+line-length = 100
+target-version = ['py38', 'py39', 'py310', 'py311']
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+  | env
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+multi_line_mode = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true
+skip_gitignore = true
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_equality = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --cov=gsis_reconciliation --cov-report=html --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["gsis_reconciliation"]
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+    "*/__init__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "class .*Protocol.*:",
+]
