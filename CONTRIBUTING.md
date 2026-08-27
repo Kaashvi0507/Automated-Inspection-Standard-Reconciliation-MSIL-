@@ -1,4 +1,4 @@
-# Contributing to GSIS-P / SMIR Reconciliation
+# Contributing to Automated Inspection Standard Reconciliation (MSIL)
 
 Thank you for your interest in contributing! This document outlines our contribution process and expectations.
 
