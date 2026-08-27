@@ -62,8 +62,8 @@ Info Field 1 | Info Field 2 | Info Field 3 | Issue date | Long Text
 
 1. **Clone & navigate:**
    ```bash
-   git clone https://github.com/GouravKim/gsis-reconciliation.git
-   cd gsis-reconciliation
+   git clone https://github.com/GouravKim/Automated-Inspection-Standard-Reconciliation-MSIL.git
+   cd Automated-Inspection-Standard-Reconciliation-MSIL
    ```
 
 2. **Create virtual environment:**
