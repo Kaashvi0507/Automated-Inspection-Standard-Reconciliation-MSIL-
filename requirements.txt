@@ -1,4 +1,4 @@
-# GSIS-P / SMIR Reconciliation — runtime dependencies (reconcile.py)
+# GSIS-P / MSIL Reconciliation — runtime dependencies (reconcile.py)
 # Fully local, CPU-only. RapidOCR bundles its OCR models inside the wheel, and the
 # sentence-embedding model is bundled in models/all-MiniLM-L6-v2, so the app needs
 # NO internet at runtime. Pinned to the validated versions.
