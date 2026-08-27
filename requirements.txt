@@ -1,0 +1,18 @@
+# GSIS-P / SMIR Reconciliation — runtime dependencies (reconcile.py)
+# Fully local, CPU-only. RapidOCR bundles its OCR models inside the wheel, and the
+# sentence-embedding model is bundled in models/all-MiniLM-L6-v2, so the app needs
+# NO internet at runtime. Pinned to the validated versions.
+streamlit==1.45.0
+pandas==2.2.3
+numpy==2.3.5
+pdfplumber==0.11.6
+openpyxl==3.1.5
+PyMuPDF==1.28.0
+rapidocr-onnxruntime==1.4.4
+onnxruntime==1.24.4
+sentence-transformers==3.4.1
+wordninja==2.0.0
+# Optional heavy fallback OCR/table engine (used only if the band extractor finds
+# nothing). Its models download from HuggingFace on first use — prefetch them during
+# setup with:  docling-tools models download
+docling==2.114.0
