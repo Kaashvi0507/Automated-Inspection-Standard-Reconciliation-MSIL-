@@ -1565,6 +1565,7 @@ class PipelineOrchestrator:
         st_.processing_time = time.time()-t; return st_
 
 # ════ 12b. BATCH PAIRING (new, for Problem 1) ════
+##added this in the 1st commit
 # Matches uploaded PDFs to uploaded Excels by (vendor_code, part_number).
 # vendor_code/part_number for a PDF come from extract_metadata_from_pdf()
 # (already defined above); for an Excel, straight from its "VENDOR CODE"
@@ -1625,12 +1626,62 @@ for k, d in [("work",None),("pdf_item",[]),("pdf_spec",[]),("pdf_method",[]),("p
  ("_pending",None),("proc_pdf",None),("pdf_src",""),("show_confidence",True),("manual_alignments",{}),
  ("pdf_rows",[]),("alignment_map",[]),("page",1),("rows_per_page",50)]:
     if k not in st.session_state: st.session_state[k] = d
+
+
+# u1, u2 = st.columns(2)
+# pdf_file = u1.file_uploader("📄 PDF — source of truth (SMIR)", type=["pdf"])
+# excel_file = u2.file_uploader("📊 Excel — to correct (GSIS-P)", type=["xlsx","xls"])
+# if not (pdf_file and excel_file):
+#     st.info("⬆️ Upload both a **PDF** and an **Excel** to begin.")
+#     st.stop()
+
+#instead of above 6 lines of code, i have changed the code to below
 u1, u2 = st.columns(2)
-pdf_file = u1.file_uploader("📄 PDF — source of truth (SMIR)", type=["pdf"])
-excel_file = u2.file_uploader("📊 Excel — to correct (GSIS-P)", type=["xlsx","xls"])
-if not (pdf_file and excel_file):
-    st.info("⬆️ Upload both a **PDF** and an **Excel** to begin.")
+pdf_files_uploaded = u1.file_uploader("📄 PDFs — source of truth (SMIR)", type=["pdf"],
+                                       accept_multiple_files=True)
+excel_files_uploaded = u2.file_uploader("📊 Excels — to correct (GSIS-P)", type=["xlsx","xls"],
+                                         accept_multiple_files=True)
+if not (pdf_files_uploaded and excel_files_uploaded):
+    st.info("⬆️ Upload one or more **PDFs** and **Excels** to begin (up to 10 each).")
     st.stop()
+
+# ── Batch pairing preview (Problem 1, step 1) ──
+# Match PDFs to Excels by (Vendor Code, Part Number). Exact match only —
+# unmatched files are surfaced, never force-paired. (pair_files() defined
+# above, in section 12b.)
+_pdf_kv = [(f.name, f.getvalue()) for f in pdf_files_uploaded]
+_excel_kv = [(f.name, f.getvalue()) for f in excel_files_uploaded]
+_pairing = pair_files(_pdf_kv, _excel_kv)
+
+with st.container(border=True):
+    st.markdown(f"**🔗 Auto-paired: {len(_pairing['pairs'])} pair(s)**")
+    for pdf_name, excel_name in _pairing["pairs"]:
+        st.markdown(f"- 📄 `{pdf_name}` ↔ 📊 `{excel_name}`")
+    if _pairing["unmatched_pdfs"]:
+        st.warning(f"Unmatched PDFs (no Vendor Code + Part Number match found): "
+                   f"{', '.join(_pairing['unmatched_pdfs'])}")
+    if _pairing["unmatched_excels"]:
+        st.warning(f"Unmatched Excels (no Vendor Code + Part Number match found): "
+                   f"{', '.join(_pairing['unmatched_excels'])}")
+
+if not _pairing["pairs"]:
+    st.error("No pairs could be matched. Reconciliation cannot continue.")
+    st.stop()
+
+# TEMPORARY (this step only): continue running the existing single-pair
+# pipeline on just the FIRST matched pair, so we can verify pairing works
+# end-to-end before looping the pipeline over every pair.
+_first_pdf_name, _first_excel_name = _pairing["pairs"][0]
+pdf_file = next(f for f in pdf_files_uploaded if f.name == _first_pdf_name)
+excel_file = next(f for f in excel_files_uploaded if f.name == _first_excel_name)
+st.info(f"Running full reconciliation on the first pair only for now: "
+        f"`{_first_pdf_name}` ↔ `{_first_excel_name}`. "
+        f"Looping over all {len(_pairing['pairs'])} pairs comes next.")
+
+##changed till here
+
+
+
 pdf_bytes = pdf_file.getvalue(); excel_bytes = excel_file.getvalue()
 excel_key = hashlib.md5(excel_bytes).hexdigest()
 try: df_raw = pd.read_excel(io.BytesIO(excel_bytes), dtype=object)
