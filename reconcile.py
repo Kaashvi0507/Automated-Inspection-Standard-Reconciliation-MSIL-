@@ -1576,48 +1576,68 @@ class PipelineOrchestrator:
 # the user — never force-paired via fuzzy matching, to avoid silently
 # reconciling the wrong PDF against the wrong Excel.
 
-def _pairing_key_from_pdf(pdf_bytes):
-    """Extract a normalized (vendor_code, part_number) key from a PDF's bytes."""
-    meta = extract_metadata_from_pdf(pdf_bytes)
-    vc, pn = meta.get("vendor_code"), meta.get("part_number")
-    if not vc or not pn: return None
-    return (_norm(vc), _norm(pn))
+# def _pairing_key_from_pdf(pdf_bytes):
+#     """Extract a normalized (vendor_code, part_number) key from a PDF's bytes."""
+#     meta = extract_metadata_from_pdf(pdf_bytes)
+#     vc, pn = meta.get("vendor_code"), meta.get("part_number")
+#     if not vc or not pn: return None
+#     return (_norm(vc), _norm(pn))
 
-def _pairing_key_from_excel(excel_bytes):
-    """Extract a normalized (vendor_code, part_number) key from an Excel's bytes."""
-    try:
-        df = pd.read_excel(io.BytesIO(excel_bytes), dtype=object)
-    except Exception:
-        return None
-    col_map = {_norm(c): c for c in df.columns}
-    vc_col, pn_col = col_map.get(_norm("VENDOR CODE")), col_map.get(_norm("Part number"))
-    if not vc_col or not pn_col: return None
-    vc_series, pn_series = df[vc_col].dropna(), df[pn_col].dropna()
-    if vc_series.empty or pn_series.empty: return None
-    vc, pn = str(vc_series.iloc[0]).strip(), str(pn_series.iloc[0]).strip()
-    if not vc or not pn: return None
-    return (_norm(vc), _norm(pn))
+# def _pairing_key_from_excel(excel_bytes):
+#     """Extract a normalized (vendor_code, part_number) key from an Excel's bytes."""
+#     try:
+#         df = pd.read_excel(io.BytesIO(excel_bytes), dtype=object)
+#     except Exception:
+#         return None
+#     col_map = {_norm(c): c for c in df.columns}
+#     vc_col, pn_col = col_map.get(_norm("VENDOR CODE")), col_map.get(_norm("Part number"))
+#     if not vc_col or not pn_col: return None
+#     vc_series, pn_series = df[vc_col].dropna(), df[pn_col].dropna()
+#     if vc_series.empty or pn_series.empty: return None
+#     vc, pn = str(vc_series.iloc[0]).strip(), str(pn_series.iloc[0]).strip()
+#     if not vc or not pn: return None
+#     return (_norm(vc), _norm(pn))
 
-def pair_files(pdf_files, excel_files):
+# def pair_files(pdf_files, excel_files):
+#     """
+#     pdf_files:   list of (filename, raw_bytes) tuples for uploaded PDFs
+#     excel_files: list of (filename, raw_bytes) tuples for uploaded Excels
+#     Returns {"pairs": [(pdf_filename, excel_filename), ...],
+#              "unmatched_pdfs": [...], "unmatched_excels": [...]}
+#     """
+#     pdf_keys, excel_keys = {}, {}
+#     for fname, b in pdf_files:
+#         k = _pairing_key_from_pdf(b)
+#         if k is not None: pdf_keys[k] = fname
+#     for fname, b in excel_files:
+#         k = _pairing_key_from_excel(b)
+#         if k is not None: excel_keys[k] = fname
+#     pairs = [(pdf_fname, excel_keys[k]) for k, pdf_fname in pdf_keys.items() if k in excel_keys]
+#     paired_pdf_names = {p for p, e in pairs}
+#     paired_excel_names = {e for p, e in pairs}
+#     unmatched_pdfs = [fname for fname, b in pdf_files if fname not in paired_pdf_names]
+#     unmatched_excels = [fname for fname, b in excel_files if fname not in paired_excel_names]
+#     return {"pairs": pairs, "unmatched_pdfs": unmatched_pdfs, "unmatched_excels": unmatched_excels}
+
+def pair_files_serial(pdf_files, excel_files):
     """
+    Simple serial pairing: first PDF matches first Excel, second with second, etc.
     pdf_files:   list of (filename, raw_bytes) tuples for uploaded PDFs
     excel_files: list of (filename, raw_bytes) tuples for uploaded Excels
     Returns {"pairs": [(pdf_filename, excel_filename), ...],
              "unmatched_pdfs": [...], "unmatched_excels": [...]}
     """
-    pdf_keys, excel_keys = {}, {}
-    for fname, b in pdf_files:
-        k = _pairing_key_from_pdf(b)
-        if k is not None: pdf_keys[k] = fname
-    for fname, b in excel_files:
-        k = _pairing_key_from_excel(b)
-        if k is not None: excel_keys[k] = fname
-    pairs = [(pdf_fname, excel_keys[k]) for k, pdf_fname in pdf_keys.items() if k in excel_keys]
-    paired_pdf_names = {p for p, e in pairs}
-    paired_excel_names = {e for p, e in pairs}
-    unmatched_pdfs = [fname for fname, b in pdf_files if fname not in paired_pdf_names]
-    unmatched_excels = [fname for fname, b in excel_files if fname not in paired_excel_names]
+    pairs = []
+    num_pairs = min(len(pdf_files), len(excel_files))
+    
+    for i in range(num_pairs):
+        pairs.append((pdf_files[i][0], excel_files[i][0]))
+    
+    unmatched_pdfs = [fname for fname, _ in pdf_files[num_pairs:]]
+    unmatched_excels = [fname for fname, _ in excel_files[num_pairs:]]
+    
     return {"pairs": pairs, "unmatched_pdfs": unmatched_pdfs, "unmatched_excels": unmatched_excels}
+
 
 # ════ 13. MAIN APP ════
 
