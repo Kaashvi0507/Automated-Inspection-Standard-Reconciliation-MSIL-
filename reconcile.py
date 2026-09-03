@@ -1913,12 +1913,37 @@ for _oi, _pid in enumerate(_pair_ids):
             with c1: show_auto_fixes(auto_summary)
             with c2: show_column_match(metrics["column_match"])
             st.divider(); show_issues_table(issues)
+        # with tab_review:
+        #     st.markdown("### 🔍 Review & Fix")
+        #     ct, cf, cs = st.columns([1,2,3])
+        #     with ct: st.session_state["show_confidence"] = st.checkbox("📊 Show Confidence", value=st.session_state.get("show_confidence",True))
+        #     with cf: flag = st.radio("Show", ["All rows","Rows with issues","Rows with PDF match","Rows missing PDF match"], horizontal=True, index=0, label_visibility="collapsed")
+        #     with cs: search = st.text_input("search", placeholder="🔎 Search…", label_visibility="collapsed", key=f"review_search_{_pid}")
         with tab_review:
-            st.markdown("### 🔍 Review & Fix")
-            ct, cf, cs = st.columns([1,2,3])
-            with ct: st.session_state["show_confidence"] = st.checkbox("📊 Show Confidence", value=st.session_state.get("show_confidence",True))
-            with cf: flag = st.radio("Show", ["All rows","Rows with issues","Rows with PDF match","Rows missing PDF match"], horizontal=True, index=0, label_visibility="collapsed")
-            with cs: search = st.text_input("search", placeholder="🔎 Search…", label_visibility="collapsed", key=f"review_search_{_pid}")
+    st.markdown("### 🔍 Review & Fix")
+    ct, cf, cs = st.columns([1,2,3])
+    with ct: 
+        st.session_state["show_confidence"] = st.checkbox(
+            "📊 Show Confidence", 
+            value=st.session_state.get("show_confidence", True),
+            key=f"show_conf_{_pid}"  # Add this unique key
+        )
+    with cf: 
+        flag = st.radio(
+            "Show", 
+            ["All rows","Rows with issues","Rows with PDF match","Rows missing PDF match"], 
+            horizontal=True, 
+            index=0, 
+            label_visibility="collapsed",
+            key=f"review_radio_{_pid}"  # Also add unique key to radio
+        )
+    with cs: 
+        search = st.text_input(
+            "search", 
+            placeholder="🔎 Search…", 
+            label_visibility="collapsed", 
+            key=f"review_search_{_pid}"
+        )
             mask = np.ones(len(work), dtype=bool)
             if flag == "Rows with issues":
                 ir = {i["row_index"] for i in issues}; mask = np.array([i in ir for i in range(len(work))])
@@ -1930,12 +1955,13 @@ for _oi, _pid in enumerate(_pair_ids):
             disp = _build_comparison_grid_13col(work, pdf_item, pdf_spec, pdf_method, pdf_sampling, pdf_vendor, pdf_part, pdf_model, manual_alignments, pdf_rows)
             view_full = disp[mask]; total_rows = len(view_full)
             rpp_opts = [25,50,100,200]
+            # 
             rpp = st.selectbox("Rows per page", options=rpp_opts, index=rpp_opts.index(_pd.get("rows_per_page",50)), key=f"rpp_sel_{_pid}")
-            _pd["rows_per_page"] = rpp
             tp = max(1, (total_rows+rpp-1)//rpp)
             c1,c2,c3 = st.columns([1,2,1])
             with c1:
                 if st.button("◀ Previous", disabled=_pd.get("page",1) <= 1): _pd["page"] = max(1, _pd.get("page",1)-1); st.rerun()
+            # with c2: _pd["page"] = st.number_input("Page", 1, tp, min(tp, _pd.get("page",1)), 1, key=f"page_in_{_pid}", label_visibility="collapsed")
             with c2: _pd["page"] = st.number_input("Page", 1, tp, min(tp, _pd.get("page",1)), 1, key=f"page_in_{_pid}", label_visibility="collapsed")
             with c3:
                 if st.button("Next ▶", disabled=_pd.get("page",1) >= tp): _pd["page"] = min(tp, _pd.get("page",1)+1); st.rerun()
