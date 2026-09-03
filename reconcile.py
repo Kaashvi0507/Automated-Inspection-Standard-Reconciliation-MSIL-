@@ -1873,26 +1873,10 @@ _outer_tabs = st.tabs(_outer_labels)
 for _oi, _pid in enumerate(_pair_ids):
     with _outer_tabs[_oi]:
         _pd = st.session_state["batch"][_pid]
-        
-        # Display the unique ID prominently
-        st.markdown(f"""
-        <div style="background: #f0f4ff; padding: 10px 16px; border-radius: 8px; border-left: 4px solid #3b82f6; margin-bottom: 16px;">
-            <span style="font-size: 13px; color: #64748b;">🆔 Pair ID:</span>
-            <span style="font-size: 14px; font-weight: 600; color: #1e3a8a; font-family: monospace;">
-                {_pd.get('pair_id', 'N/A')}
-            </span>
-            <span style="margin-left: 20px; font-size: 13px; color: #64748b;">📦 Batch:</span>
-            <span style="font-size: 14px; font-weight: 500; color: #1e3a8a; font-family: monospace;">
-                {_pd.get('batch_id', 'N/A')}
-            </span>
-        </div>
-        """, unsafe_allow_html=True)
-        
         pdf_bytes = _pd["pdf_bytes"]; excel_bytes = _pd["excel_bytes"]
         df_raw = _pd["df_raw"]; df_orig = df_raw
         alignment_map = _pd.get("alignment_map", [])
         work = _pd["work"]
-        # ... rest of the code continues as before
         if any(str(work[c].dtype) != "object" for c in work.columns):
             work = work.astype(object); st.session_state["batch"][_pid]["work"] = work
         work["Decimal Places"] = work["Decimal Places"].map(lambda v: None if safe_float(v) == 0 else v)
@@ -1919,106 +1903,168 @@ for _oi, _pid in enumerate(_pair_ids):
         #     with ct: st.session_state["show_confidence"] = st.checkbox("📊 Show Confidence", value=st.session_state.get("show_confidence",True))
         #     with cf: flag = st.radio("Show", ["All rows","Rows with issues","Rows with PDF match","Rows missing PDF match"], horizontal=True, index=0, label_visibility="collapsed")
         #     with cs: search = st.text_input("search", placeholder="🔎 Search…", label_visibility="collapsed", key=f"review_search_{_pid}")
-        with tab_review:
-            st.markdown("### 🔍 Review & Fix")
-    ct, cf, cs = st.columns([1,2,3])
-    with ct: 
-        st.session_state["show_confidence"] = st.checkbox(
-            "📊 Show Confidence", 
-            value=st.session_state.get("show_confidence", True),
-            key=f"show_conf_{_pid}"  # Add this unique key
-        )
-    with cf: 
-        flag = st.radio(
-            "Show", 
-            ["All rows","Rows with issues","Rows with PDF match","Rows missing PDF match"], 
-            horizontal=True, 
-            index=0, 
-            label_visibility="collapsed",
-            key=f"review_radio_{_pid}"  # Also add unique key to radio
-        )
-    with cs: 
-        search = st.text_input(
-            "search", 
-            placeholder="🔎 Search…", 
-            label_visibility="collapsed", 
-            key=f"review_search_{_pid}"
-              mask = np.ones(len(work), dtype=bool)
+            with tab_review:
+                    st.markdown("### 🔍 Review & Fix")
+                    ct, cf, cs = st.columns([1,2,3])
+            with ct: 
+                st.session_state["show_confidence"] = st.checkbox(
+                    "📊 Show Confidence", 
+                    value=st.session_state.get("show_confidence", True),
+                    key=f"show_conf_{_pid}"
+                )
+            with cf: 
+                flag = st.radio(
+                    "Show", 
+                    ["All rows","Rows with issues","Rows with PDF match","Rows missing PDF match"], 
+                    horizontal=True, 
+                    index=0, 
+                    label_visibility="collapsed",
+                    key=f"review_radio_{_pid}"
+                )
+            with cs: 
+                search = st.text_input(
+                    "Search", 
+                    placeholder="🔎 Search…", 
+                    label_visibility="collapsed", 
+                    key=f"review_search_{_pid}"
+                )
+            
+            mask = np.ones(len(work), dtype=bool)
             if flag == "Rows with issues":
-                ir = {i["row_index"] for i in issues}; mask = np.array([i in ir for i in range(len(work))])
-            elif flag == "Rows with PDF match": mask &= np.array([bool(str(s).strip()) for s in pdf_spec])
-            elif flag == "Rows missing PDF match": mask &= np.array([not str(s).strip() for s in pdf_spec])
+                ir = {i["row_index"] for i in issues}
+                mask = np.array([i in ir for i in range(len(work))])
+            elif flag == "Rows with PDF match":
+                mask &= np.array([bool(str(s).strip()) for s in pdf_spec])
+            elif flag == "Rows missing PDF match":
+                mask &= np.array([not str(s).strip() for s in pdf_spec])
+            
             if search.strip():
                 s = search.strip().lower()
-                mask &= (work["Inspection Item"].astype(str).str.lower().str.contains(s,regex=False) | work["Parameter"].astype(str).str.lower().str.contains(s,regex=False)).to_numpy()
-            disp = _build_comparison_grid_13col(work, pdf_item, pdf_spec, pdf_method, pdf_sampling, pdf_vendor, pdf_part, pdf_model, manual_alignments, pdf_rows)
-            view_full = disp[mask]; total_rows = len(view_full)
-            rpp_opts = [25,50,100,200]
-            # 
+                mask &= (work["Inspection Item"].astype(str).str.lower().str.contains(s, regex=False) | 
+                         work["Parameter"].astype(str).str.lower().str.contains(s, regex=False)).to_numpy()
+            
+            disp = _build_comparison_grid_13col(work, pdf_item, pdf_spec, pdf_method, pdf_sampling, 
+                                                pdf_vendor, pdf_part, pdf_model, manual_alignments, pdf_rows)
+            view_full = disp[mask]
+            total_rows = len(view_full)
+            
+            rpp_opts = [25, 50, 100, 200]
+            # rpp = st.selectbox(
+            #     "Rows per page", 
+            #     options=rpp_opts, 
+            #     index=rpp_opts.index(_pd.get("rows_per_page", 50)), 
+            #     key=f"rpp_sel_{_pid}"
+            # )
             rpp = st.selectbox("Rows per page", options=rpp_opts, index=rpp_opts.index(_pd.get("rows_per_page",50)), key=f"rpp_sel_{_pid}")
-            tp = max(1, (total_rows+rpp-1)//rpp)
-            c1,c2,c3 = st.columns([1,2,1])
+            _pd["rows_per_page"] = rpp
+            tp = max(1, (total_rows + rpp - 1) // rpp)
+            
+            c1, c2, c3 = st.columns([1, 2, 1])
             with c1:
-                if st.button("◀ Previous", disabled=_pd.get("page",1) <= 1): _pd["page"] = max(1, _pd.get("page",1)-1); st.rerun()
-  # with c2: _pd["page"] = st.number_input("Page", 1, tp, min(tp, _pd.get("page",1)), 1, key=f"page_in_{_pid}", label_visibility="collapsed")
-    with c2: _pd["page"] = st.number_input("Page", 1, tp, min(tp, _pd.get("page",1)), 1, key=f"page_in_{_pid}", label_visibility="collapsed")
+                if st.button("◀ Previous", disabled=_pd.get("page", 1) <= 1):
+                    _pd["page"] = max(1, _pd.get("page", 1) - 1)
+                    st.rerun()
+            with c2:
+                _pd["page"] = st.number_input(
+                    "Page", 
+                    1, 
+                    tp, 
+                    min(tp, _pd.get("page", 1)), 
+                    1, 
+                    key=f"page_in_{_pid}", 
+                    label_visibility="collapsed"
+                )
             with c3:
-                if st.button("Next ▶", disabled=_pd.get("page",1) >= tp): _pd["page"] = min(tp, _pd.get("page",1)+1); st.rerun()
-            si = (_pd.get("page",1)-1)*rpp; view = view_full.iloc[si:min(si+rpp, total_rows)]
-            st.caption(f"Rows {si+1}–{min(si+rpp,total_rows)} of {total_rows}")
+                if st.button("Next ▶", disabled=_pd.get("page", 1) >= tp):
+                    _pd["page"] = min(tp, _pd.get("page", 1) + 1)
+                    st.rerun()
+            
+            si = (_pd.get("page", 1) - 1) * rpp
+            view = view_full.iloc[si:min(si + rpp, total_rows)]
+            st.caption(f"Rows {si+1}–{min(si+rpp, total_rows)} of {total_rows}")
+            
             if st.session_state["show_confidence"]:
                 cd = []
                 for i in range(len(view)):
-                    ri = view.index[i]; rc = {}
+                    ri = view.index[i]
+                    rc = {}
                     for col in REQUIRED_COLS:
                         if col in view.columns:
                             val = str(view.iloc[i][col]) if pd.notna(view.iloc[i][col]) else ""
                             pv_ = pdf_item[ri] if col == "Inspection Item" and ri < len(pdf_item) else (pdf_spec[ri] if col == "Parameter" and ri < len(pdf_spec) else None)
                             rc[col] = calculate_cell_confidence(val, col, pv_)
                     sm = get_row_confidence_summary(rc)
-                    cd.append({"Avg":sm["avg"],"Min":sm["min"],"Needs Review":"⚠️" if sm["needs_review"] else "✅"})
+                    cd.append({"Avg": sm["avg"], "Min": sm["min"], "Needs Review": "⚠️" if sm["needs_review"] else "✅"})
                 cdf = pd.DataFrame(cd)
                 view = view.copy()
-                for col in ["Avg","Min","Needs Review"]: view.insert(1, f"📊 {col}", cdf[col])
+                for col in ["Avg", "Min", "Needs Review"]:
+                    view.insert(1, f"📊 {col}", cdf[col])
                 cfg = _comparison_column_config()
                 cfg["📊 Avg"] = st.column_config.NumberColumn("Avg Conf", format="%d%%")
                 cfg["📊 Min"] = st.column_config.NumberColumn("Min Conf", format="%d%%")
                 cfg["📊 Needs Review"] = st.column_config.TextColumn("Review")
-                disabled = list(_PDF_READONLY_COLS)+["📊 Avg","📊 Min"," Needs Review"]
+                disabled = list(_PDF_READONLY_COLS) + ["📊 Avg", "📊 Min", "📊 Needs Review"]
             else:
-                cfg = _comparison_column_config(); disabled = list(_PDF_READONLY_COLS)
-            edited = st.data_editor(view, use_container_width=True, height=470, num_rows="fixed", disabled=disabled, column_config=cfg, key=f"review_grid_{_pid}")
+                cfg = _comparison_column_config()
+                disabled = list(_PDF_READONLY_COLS)
+            
+            edited = st.data_editor(
+                view, 
+                use_container_width=True, 
+                height=470, 
+                num_rows="fixed", 
+                disabled=disabled, 
+                column_config=cfg, 
+                key=f"review_grid_{_pid}"
+            )
             work = _apply_excel_edits(work, edited)
+            
             cb1, cb2 = st.columns(2)
             with cb1:
                 if st.button("⭮ Renumber Operation №", use_container_width=True):
                     c = 1
                     for i in range(len(work)):
-                        if _row_has_inspection_content(work.iloc[i]): work.at[work.index[i],"Operation number"] = c; c += 1
-                    st.session_state["batch"][_pid]["work"] = work; st.rerun()
+                        if _row_has_inspection_content(work.iloc[i]):
+                            work.at[work.index[i], "Operation number"] = c
+                            c += 1
+                    st.session_state["batch"][_pid]["work"] = work
+                    st.rerun()
             with cb2:
                 if st.button("🔄 Reorder by MIC", use_container_width=True):
-                    work = reorder_by_mic(work); st.session_state["batch"][_pid]["work"] = work; st.rerun()
+                    work = reorder_by_mic(work)
+                    st.session_state["batch"][_pid]["work"] = work
+                    st.rerun()
+            
             unmatched = [i for i, s in enumerate(pdf_spec) if not str(s).strip()]
             if unmatched:
                 st.markdown("### 🔄 Manual Alignment Override")
                 with st.container(border=True):
-                    opts = ["None"]+[f"{j+1}: {pdf_rows[j].get('item','')[:40]}" for j in range(len(pdf_rows))]
-                    idxs = [-1]+list(range(len(pdf_rows)))
+                    opts = ["None"] + [f"{j+1}: {pdf_rows[j].get('item','')[:40]}" for j in range(len(pdf_rows))]
+                    idxs = [-1] + list(range(len(pdf_rows)))
                     with st.form(f"manual_align_form_{_pid}"):
                         tmp = {}
                         for ri in unmatched:
-                            cols = st.columns([1,2,2,3])
-                            cols[0].write(f"{ri+1}"); cols[1].write(str(work.iloc[ri]["Inspection Item"])[:40]); cols[2].write(str(work.iloc[ri]["Parameter"])[:40])
+                            cols = st.columns([1, 2, 2, 3])
+                            cols[0].write(f"{ri+1}")
+                            cols[1].write(str(work.iloc[ri]["Inspection Item"])[:40])
+                            cols[2].write(str(work.iloc[ri]["Parameter"])[:40])
                             cur = manual_alignments.get(ri, -1)
                             di = idxs.index(cur) if cur in idxs else 0
-                            sel = cols[3].selectbox("Select", options=opts, index=di, key=f"ma_{_pid}_{ri}", label_visibility="collapsed")
+                            sel = cols[3].selectbox(
+                                "Select", 
+                                options=opts, 
+                                index=di, 
+                                key=f"ma_{_pid}_{ri}", 
+                                label_visibility="collapsed"
+                            )
                             tmp[ri] = idxs[opts.index(sel)]
                         ca, cc = st.columns(2)
                         if ca.form_submit_button("✅ Apply", use_container_width=True):
-                            st.session_state["batch"][_pid]["manual_alignments"] = tmp; st.rerun()
+                            st.session_state["batch"][_pid]["manual_alignments"] = tmp
+                            st.rerun()
                         if cc.form_submit_button("🗑️ Clear", use_container_width=True):
-                            st.session_state["batch"][_pid]["manual_alignments"] = {}; st.rerun()
+                            st.session_state["batch"][_pid]["manual_alignments"] = {}
+                            st.rerun()
         with tab_edit:
             st.markdown("### ✏️ Edit Excel")
             b1,b2,b3,b4 = st.columns([1,1,1,2])
