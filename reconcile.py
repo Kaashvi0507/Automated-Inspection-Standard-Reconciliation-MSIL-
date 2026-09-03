@@ -1735,179 +1735,192 @@ if not st.session_state["batch"]:
         st.session_state["batch"] = batch_results
         st.rerun()
     st.stop()
-work = st.session_state["work"]
-if any(str(work[c].dtype) != "object" for c in work.columns):
-    work = work.astype(object); st.session_state["work"] = work
-work["Decimal Places"] = work["Decimal Places"].map(lambda v: None if safe_float(v) == 0 else v)
-df_orig = df_raw
-pdf_item = st.session_state["pdf_item"]; pdf_spec = st.session_state["pdf_spec"]
-pdf_method = st.session_state["pdf_method"]; pdf_sampling = st.session_state["pdf_sampling"]
-pdf_vendor = st.session_state.get("pdf_vendor",""); pdf_part = st.session_state.get("pdf_part","")
-pdf_model = st.session_state.get("pdf_model",""); auto_summary = st.session_state.get("auto_summary",{})
-pdf_rows = st.session_state.get("pdf_rows",[]); manual_alignments = st.session_state.get("manual_alignments",{})
-issues = get_all_issues(work, pdf_vendor, pdf_part, pdf_model)
-st.session_state["issues"] = issues
-metrics = calculate_metrics(work, pdf_item, pdf_spec, pdf_method, pdf_sampling, issues, auto_summary, pdf_vendor, pdf_part, pdf_model)
-tab_report, tab_review, tab_edit, tab_pdf, tab_export = st.tabs(["📊 Report Dashboard","🔍 Review & Fix","✏️ Edit Excel","📄 PDF (source of truth)","📤 Export"])
-with tab_report:
-    st.markdown("## 📊 Reconciliation Report Dashboard")
-    show_kpi_cards(metrics); st.divider()
-    c1, c2 = st.columns(2)
-    with c1: show_auto_fixes(auto_summary)
-    with c2: show_column_match(metrics["column_match"])
-    st.divider(); show_issues_table(issues)
-with tab_review:
-    st.markdown("### 🔍 Review & Fix")
-    ct, cf, cs = st.columns([1,2,3])
-    with ct: st.session_state["show_confidence"] = st.checkbox("📊 Show Confidence", value=st.session_state.get("show_confidence",True))
-    with cf: flag = st.radio("Show", ["All rows","Rows with issues","Rows with PDF match","Rows missing PDF match"], horizontal=True, index=0, label_visibility="collapsed")
-    with cs: search = st.text_input("search", placeholder="🔎 Search…", label_visibility="collapsed", key="review_search")
-    mask = np.ones(len(work), dtype=bool)
-    if flag == "Rows with issues":
-        ir = {i["row_index"] for i in issues}; mask = np.array([i in ir for i in range(len(work))])
-    elif flag == "Rows with PDF match": mask &= np.array([bool(str(s).strip()) for s in pdf_spec])
-    elif flag == "Rows missing PDF match": mask &= np.array([not str(s).strip() for s in pdf_spec])
-    if search.strip():
-        s = search.strip().lower()
-        mask &= (work["Inspection Item"].astype(str).str.lower().str.contains(s,regex=False) | work["Parameter"].astype(str).str.lower().str.contains(s,regex=False)).to_numpy()
-    disp = _build_comparison_grid_13col(work, pdf_item, pdf_spec, pdf_method, pdf_sampling, pdf_vendor, pdf_part, pdf_model, manual_alignments, pdf_rows)
-    view_full = disp[mask]; total_rows = len(view_full)
-    rpp_opts = [25,50,100,200]
-    rpp = st.selectbox("Rows per page", options=rpp_opts, index=rpp_opts.index(st.session_state.get("rows_per_page",50)), key="rpp_sel")
-    st.session_state["rows_per_page"] = rpp
-    tp = max(1, (total_rows+rpp-1)//rpp)
-    c1,c2,c3 = st.columns([1,2,1])
-    with c1:
-        if st.button("◀ Previous", disabled=st.session_state["page"] <= 1): st.session_state["page"] = max(1, st.session_state["page"]-1); st.rerun()
-    with c2: st.session_state["page"] = st.number_input("Page", 1, tp, st.session_state.get("page",1), 1, key="page_in", label_visibility="collapsed")
-    with c3:
-        if st.button("Next ▶", disabled=st.session_state["page"] >= tp): st.session_state["page"] = min(tp, st.session_state["page"]+1); st.rerun()
-    si = (st.session_state["page"]-1)*rpp; view = view_full.iloc[si:min(si+rpp, total_rows)]
-    st.caption(f"Rows {si+1}–{min(si+rpp,total_rows)} of {total_rows}")
-    if st.session_state["show_confidence"]:
-        cd = []
-        for i in range(len(view)):
-            ri = view.index[i]; rc = {}
-            for col in REQUIRED_COLS:
-                if col in view.columns:
-                    val = str(view.iloc[i][col]) if pd.notna(view.iloc[i][col]) else ""
-                    pv_ = pdf_item[ri] if col == "Inspection Item" and ri < len(pdf_item) else (pdf_spec[ri] if col == "Parameter" and ri < len(pdf_spec) else None)
-                    rc[col] = calculate_cell_confidence(val, col, pv_)
-            sm = get_row_confidence_summary(rc)
-            cd.append({"Avg":sm["avg"],"Min":sm["min"],"Needs Review":"⚠️" if sm["needs_review"] else "✅"})
-        cdf = pd.DataFrame(cd)
-        view = view.copy()
-        for col in ["Avg","Min","Needs Review"]: view.insert(1, f"📊 {col}", cdf[col])
-        cfg = _comparison_column_config()
-        cfg["📊 Avg"] = st.column_config.NumberColumn("Avg Conf", format="%d%%")
-        cfg["📊 Min"] = st.column_config.NumberColumn("Min Conf", format="%d%%")
-        cfg["📊 Needs Review"] = st.column_config.TextColumn("Review")
-        disabled = list(_PDF_READONLY_COLS)+["📊 Avg","📊 Min"," Needs Review"]
-    else:
-        cfg = _comparison_column_config(); disabled = list(_PDF_READONLY_COLS)
-    edited = st.data_editor(view, use_container_width=True, height=470, num_rows="fixed", disabled=disabled, column_config=cfg, key="review_grid")
-    work = _apply_excel_edits(work, edited)
-    cb1, cb2 = st.columns(2)
-    with cb1:
-        if st.button("⭮ Renumber Operation №", use_container_width=True):
-            c = 1
-            for i in range(len(work)):
-                if _row_has_inspection_content(work.iloc[i]): work.at[work.index[i],"Operation number"] = c; c += 1
-            st.session_state["work"] = work; st.rerun()
-    with cb2:
-        if st.button("🔄 Reorder by MIC", use_container_width=True):
-            work = reorder_by_mic(work); st.session_state["work"] = work; st.rerun()
-    unmatched = [i for i, s in enumerate(pdf_spec) if not str(s).strip()]
-    if unmatched:
-        st.markdown("### 🔄 Manual Alignment Override")
-        with st.container(border=True):
-            opts = ["None"]+[f"{j+1}: {pdf_rows[j].get('item','')[:40]}" for j in range(len(pdf_rows))]
-            idxs = [-1]+list(range(len(pdf_rows)))
-            with st.form("manual_align_form"):
-                tmp = {}
-                for ri in unmatched:
-                    cols = st.columns([1,2,2,3])
-                    cols[0].write(f"{ri+1}"); cols[1].write(str(work.iloc[ri]["Inspection Item"])[:40]); cols[2].write(str(work.iloc[ri]["Parameter"])[:40])
-                    cur = manual_alignments.get(ri, -1)
-                    di = idxs.index(cur) if cur in idxs else 0
-                    sel = cols[3].selectbox("Select", options=opts, index=di, key=f"ma_{ri}", label_visibility="collapsed")
-                    tmp[ri] = idxs[opts.index(sel)]
-                ca, cc = st.columns(2)
-                if ca.form_submit_button("✅ Apply", use_container_width=True):
-                    st.session_state["manual_alignments"] = tmp; st.rerun()
-                if cc.form_submit_button("🗑️ Clear", use_container_width=True):
-                    st.session_state["manual_alignments"] = {}; st.rerun()
-with tab_edit:
-    st.markdown("### ✏️ Edit Excel")
-    b1,b2,b3,b4 = st.columns([1,1,1,2])
-    with b1:
-        if st.button("💾 Save Changes", type="primary", use_container_width=True):
-            ok, ni, cr = save_and_validate(work, pdf_vendor, pdf_part, pdf_model)
-            if ok: st.success(f"✅ Saved! {cr} critical."); st.rerun()
-    with b2:
-        if st.button("🔄 Re-apply Automation", use_container_width=True):
-            wu, ns, fc = reapply_automation(work)
-            st.session_state["work"] = wu; st.session_state["auto_summary"] = ns; st.success(f"✅ Fixed {fc} cells."); st.rerun()
-    with b3:
-        if st.button("⭮ Renumber Operations", use_container_width=True):
-            c = 1
-            for i in range(len(work)):
-                if _row_has_inspection_content(work.iloc[i]): work.at[work.index[i],"Operation number"] = c; c += 1
-            st.session_state["work"] = work; st.rerun()
-    with b4: st.caption("💡 Edit any cell, then Save.")
-    st.divider()
-    c1, c2 = st.columns([1,3])
-    ef = c1.radio("Show", ["All rows","Rows with issues"], key="edit_filter", label_visibility="collapsed")
-    es = c2.text_input("edit_search", placeholder="🔎 Search…", label_visibility="collapsed", key="edit_search")
-    em = np.ones(len(work), dtype=bool)
-    if ef == "Rows with issues":
-        ir = {i["row_index"] for i in issues}; em = np.array([i in ir for i in range(len(work))])
-    if es.strip():
-        s = es.strip().lower()
-        em &= (work["Inspection Item"].astype(str).str.lower().str.contains(s,regex=False) | work["Parameter"].astype(str).str.lower().str.contains(s,regex=False)).to_numpy()
-    ev = work[em]
-    ee = st.data_editor(ev[SCHEMA], use_container_width=True, height=520, num_rows="fixed", key="edit_grid")
-    if not ee.equals(ev): work = _apply_excel_edits(work, ee)
-with tab_pdf:
-    st.markdown("### 📄 PDF (source of truth)")
-    c1,c2,c3 = st.columns([1,2,1])
-    with c2:
-        if st.button("🔄 Re-extract Metadata", use_container_width=True):
-            with st.spinner("Re-extracting…"):
-                m = extract_metadata_from_pdf(st.session_state.get("proc_pdf", pdf_bytes))
-                st.session_state["pdf_vendor"] = m.get("vendor_code","")
-                st.session_state["pdf_part"] = m.get("part_number","")
-                st.session_state["pdf_model"] = m.get("model_no","")
-                st.success("Metadata updated!"); st.rerun()
-    pages = pdf_page_pngs(st.session_state.get("proc_pdf", pdf_bytes))
-    if pages:
-        c1,c2,c3 = st.columns([1,1,2])
-        pn = c1.number_input("Page", 1, len(pages), 1, 1)
-        fit = c2.selectbox("Fit", ["Width","Custom"], 0)
-        zm = c3.slider("Zoom %", 40, 300, 100, 10, disabled=fit == "Width")
-        wcss = "100%" if fit == "Width" else f"{zm}%"
-        st.markdown(f'<div style="overflow:auto;max-height:80vh;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc;"><img src="data:image/png;base64,{base64.b64encode(pages[int(pn)-1]).decode()}" style="width:{wcss};display:block;margin:auto"></div>', unsafe_allow_html=True)
-    else: st.warning("Could not render the PDF.")
-    with st.expander("📋 Extracted rows"):
-        st.dataframe(pd.DataFrame({"PDF Item":pdf_item,"PDF Spec":pdf_spec,"PDF Method":pdf_method,"PDF Sampling":pdf_sampling}), use_container_width=True, height=300)
-with tab_export:
-    st.markdown("### 📤 Export & Download")
-    crit = [i for i in issues if i.get("severity") == "critical"]
-    if crit: st.warning(f"{len(crit)} critical issue(s) remain — review before export.")
-    _MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    try:
-        corrected = build_workbook(excel_bytes, work)
-        rebuilt = _to_xlsx(build_rebuilt(pdf_rows,
-         {"vendor_code":pdf_vendor,"part_numbers":[pdf_part],"model_no":pdf_model},
-         work.iloc[0]["Issue date"] if len(work) else None))
-        diffcsv = build_diff(pdf_rows, work, alignment).to_csv(index=False).encode("utf-8")
-        c1,c2,c3 = st.columns(3)
-        c1.download_button("⬇ Corrected Excel", corrected, file_name="corrected.xlsx", mime=_MIME, use_container_width=True)
-        c2.download_button("⬇ Rebuilt-from-PDF", rebuilt, file_name="rebuilt.xlsx", mime=_MIME, use_container_width=True)
-        c3.download_button("⬇ Diff (CSV)", diffcsv, file_name="diff.csv", mime="text/csv", use_container_width=True)
-        st.caption("Works from any PC on your LAN — open http://<host-ip>:8502 and click a download button.")
-    except Exception as e:
-        st.error(f"Export failed: {type(e).__name__}: {e}")
-        # CSV fallback so you can ALWAYS get the data
-        st.download_button("⬇ Fallback CSV", work[SCHEMA].to_csv(index=False).encode("utf-8"),
-         file_name="corrected.csv", mime="text/csv", use_container_width=True)
+# ── Per-pair result tabs (Problem 1, step 2) ──
+# Each matched pair gets its own outer tab; the same 5 inner tabs from the
+# original single-pair app appear inside each one, driven by that pair's
+# own stored results (never the shared flat keys the original app used).
+_pair_ids = sorted(st.session_state["batch"].keys())
+_outer_labels = [f"✅ {st.session_state['batch'][pid]['pdf_name']}" for pid in _pair_ids]
+_outer_tabs = st.tabs(_outer_labels)
+for _oi, _pid in enumerate(_pair_ids):
+    with _outer_tabs[_oi]:
+        _pd = st.session_state["batch"][_pid]
+        pdf_bytes = _pd["pdf_bytes"]; excel_bytes = _pd["excel_bytes"]
+        df_raw = _pd["df_raw"]; df_orig = df_raw
+        alignment_map = _pd.get("alignment_map", [])
+        work = _pd["work"]
+        if any(str(work[c].dtype) != "object" for c in work.columns):
+            work = work.astype(object); st.session_state["batch"][_pid]["work"] = work
+        work["Decimal Places"] = work["Decimal Places"].map(lambda v: None if safe_float(v) == 0 else v)
+        df_orig = df_raw
+        pdf_item = _pd["pdf_item"]; pdf_spec = _pd["pdf_spec"]
+        pdf_method = _pd["pdf_method"]; pdf_sampling = _pd["pdf_sampling"]
+        pdf_vendor = _pd.get("pdf_vendor",""); pdf_part = _pd.get("pdf_part","")
+        pdf_model = _pd.get("pdf_model",""); auto_summary = _pd.get("auto_summary",{})
+        pdf_rows = _pd.get("pdf_rows",[]); manual_alignments = _pd.get("manual_alignments",{})
+        issues = get_all_issues(work, pdf_vendor, pdf_part, pdf_model)
+        st.session_state["batch"][_pid]["issues"] = issues
+        metrics = calculate_metrics(work, pdf_item, pdf_spec, pdf_method, pdf_sampling, issues, auto_summary, pdf_vendor, pdf_part, pdf_model)
+        tab_report, tab_review, tab_edit, tab_pdf, tab_export = st.tabs(["📊 Report Dashboard","🔍 Review & Fix","✏️ Edit Excel","📄 PDF (source of truth)","📤 Export"])
+        with tab_report:
+            st.markdown("## 📊 Reconciliation Report Dashboard")
+            show_kpi_cards(metrics); st.divider()
+            c1, c2 = st.columns(2)
+            with c1: show_auto_fixes(auto_summary)
+            with c2: show_column_match(metrics["column_match"])
+            st.divider(); show_issues_table(issues)
+        with tab_review:
+            st.markdown("### 🔍 Review & Fix")
+            ct, cf, cs = st.columns([1,2,3])
+            with ct: st.session_state["show_confidence"] = st.checkbox("📊 Show Confidence", value=st.session_state.get("show_confidence",True))
+            with cf: flag = st.radio("Show", ["All rows","Rows with issues","Rows with PDF match","Rows missing PDF match"], horizontal=True, index=0, label_visibility="collapsed")
+            with cs: search = st.text_input("search", placeholder="🔎 Search…", label_visibility="collapsed", key=f"review_search_{_pid}")
+            mask = np.ones(len(work), dtype=bool)
+            if flag == "Rows with issues":
+                ir = {i["row_index"] for i in issues}; mask = np.array([i in ir for i in range(len(work))])
+            elif flag == "Rows with PDF match": mask &= np.array([bool(str(s).strip()) for s in pdf_spec])
+            elif flag == "Rows missing PDF match": mask &= np.array([not str(s).strip() for s in pdf_spec])
+            if search.strip():
+                s = search.strip().lower()
+                mask &= (work["Inspection Item"].astype(str).str.lower().str.contains(s,regex=False) | work["Parameter"].astype(str).str.lower().str.contains(s,regex=False)).to_numpy()
+            disp = _build_comparison_grid_13col(work, pdf_item, pdf_spec, pdf_method, pdf_sampling, pdf_vendor, pdf_part, pdf_model, manual_alignments, pdf_rows)
+            view_full = disp[mask]; total_rows = len(view_full)
+            rpp_opts = [25,50,100,200]
+            rpp = st.selectbox("Rows per page", options=rpp_opts, index=rpp_opts.index(_pd.get("rows_per_page",50)), key=f"rpp_sel_{_pid}")
+            _pd["rows_per_page"] = rpp
+            tp = max(1, (total_rows+rpp-1)//rpp)
+            c1,c2,c3 = st.columns([1,2,1])
+            with c1:
+                if st.button("◀ Previous", disabled=_pd.get("page",1) <= 1): _pd["page"] = max(1, _pd.get("page",1)-1); st.rerun()
+            with c2: _pd["page"] = st.number_input("Page", 1, tp, min(tp, _pd.get("page",1)), 1, key=f"page_in_{_pid}", label_visibility="collapsed")
+            with c3:
+                if st.button("Next ▶", disabled=_pd.get("page",1) >= tp): _pd["page"] = min(tp, _pd.get("page",1)+1); st.rerun()
+            si = (_pd.get("page",1)-1)*rpp; view = view_full.iloc[si:min(si+rpp, total_rows)]
+            st.caption(f"Rows {si+1}–{min(si+rpp,total_rows)} of {total_rows}")
+            if st.session_state["show_confidence"]:
+                cd = []
+                for i in range(len(view)):
+                    ri = view.index[i]; rc = {}
+                    for col in REQUIRED_COLS:
+                        if col in view.columns:
+                            val = str(view.iloc[i][col]) if pd.notna(view.iloc[i][col]) else ""
+                            pv_ = pdf_item[ri] if col == "Inspection Item" and ri < len(pdf_item) else (pdf_spec[ri] if col == "Parameter" and ri < len(pdf_spec) else None)
+                            rc[col] = calculate_cell_confidence(val, col, pv_)
+                    sm = get_row_confidence_summary(rc)
+                    cd.append({"Avg":sm["avg"],"Min":sm["min"],"Needs Review":"⚠️" if sm["needs_review"] else "✅"})
+                cdf = pd.DataFrame(cd)
+                view = view.copy()
+                for col in ["Avg","Min","Needs Review"]: view.insert(1, f"📊 {col}", cdf[col])
+                cfg = _comparison_column_config()
+                cfg["📊 Avg"] = st.column_config.NumberColumn("Avg Conf", format="%d%%")
+                cfg["📊 Min"] = st.column_config.NumberColumn("Min Conf", format="%d%%")
+                cfg["📊 Needs Review"] = st.column_config.TextColumn("Review")
+                disabled = list(_PDF_READONLY_COLS)+["📊 Avg","📊 Min"," Needs Review"]
+            else:
+                cfg = _comparison_column_config(); disabled = list(_PDF_READONLY_COLS)
+            edited = st.data_editor(view, use_container_width=True, height=470, num_rows="fixed", disabled=disabled, column_config=cfg, key=f"review_grid_{_pid}")
+            work = _apply_excel_edits(work, edited)
+            cb1, cb2 = st.columns(2)
+            with cb1:
+                if st.button("⭮ Renumber Operation №", use_container_width=True):
+                    c = 1
+                    for i in range(len(work)):
+                        if _row_has_inspection_content(work.iloc[i]): work.at[work.index[i],"Operation number"] = c; c += 1
+                    st.session_state["batch"][_pid]["work"] = work; st.rerun()
+            with cb2:
+                if st.button("🔄 Reorder by MIC", use_container_width=True):
+                    work = reorder_by_mic(work); st.session_state["batch"][_pid]["work"] = work; st.rerun()
+            unmatched = [i for i, s in enumerate(pdf_spec) if not str(s).strip()]
+            if unmatched:
+                st.markdown("### 🔄 Manual Alignment Override")
+                with st.container(border=True):
+                    opts = ["None"]+[f"{j+1}: {pdf_rows[j].get('item','')[:40]}" for j in range(len(pdf_rows))]
+                    idxs = [-1]+list(range(len(pdf_rows)))
+                    with st.form(f"manual_align_form_{_pid}"):
+                        tmp = {}
+                        for ri in unmatched:
+                            cols = st.columns([1,2,2,3])
+                            cols[0].write(f"{ri+1}"); cols[1].write(str(work.iloc[ri]["Inspection Item"])[:40]); cols[2].write(str(work.iloc[ri]["Parameter"])[:40])
+                            cur = manual_alignments.get(ri, -1)
+                            di = idxs.index(cur) if cur in idxs else 0
+                            sel = cols[3].selectbox("Select", options=opts, index=di, key=f"ma_{_pid}_{ri}", label_visibility="collapsed")
+                            tmp[ri] = idxs[opts.index(sel)]
+                        ca, cc = st.columns(2)
+                        if ca.form_submit_button("✅ Apply", use_container_width=True):
+                            st.session_state["batch"][_pid]["manual_alignments"] = tmp; st.rerun()
+                        if cc.form_submit_button("🗑️ Clear", use_container_width=True):
+                            st.session_state["batch"][_pid]["manual_alignments"] = {}; st.rerun()
+        with tab_edit:
+            st.markdown("### ✏️ Edit Excel")
+            b1,b2,b3,b4 = st.columns([1,1,1,2])
+            with b1:
+                if st.button("💾 Save Changes", type="primary", use_container_width=True):
+                    ok, ni, cr = save_and_validate(work, pdf_vendor, pdf_part, pdf_model)
+                    if ok: st.success(f"✅ Saved! {cr} critical."); st.rerun()
+            with b2:
+                if st.button("🔄 Re-apply Automation", use_container_width=True):
+                    wu, ns, fc = reapply_automation(work)
+                    st.session_state["batch"][_pid]["work"] = wu; st.session_state["batch"][_pid]["auto_summary"] = ns; st.success(f"✅ Fixed {fc} cells."); st.rerun()
+            with b3:
+                if st.button("⭮ Renumber Operations", use_container_width=True):
+                    c = 1
+                    for i in range(len(work)):
+                        if _row_has_inspection_content(work.iloc[i]): work.at[work.index[i],"Operation number"] = c; c += 1
+                    st.session_state["batch"][_pid]["work"] = work; st.rerun()
+            with b4: st.caption("💡 Edit any cell, then Save.")
+            st.divider()
+            c1, c2 = st.columns([1,3])
+            ef = c1.radio("Show", ["All rows","Rows with issues"], key=f"edit_filter_{_pid}", label_visibility="collapsed")
+            es = c2.text_input("edit_search", placeholder="🔎 Search…", label_visibility="collapsed", key=f"edit_search_{_pid}")
+            em = np.ones(len(work), dtype=bool)
+            if ef == "Rows with issues":
+                ir = {i["row_index"] for i in issues}; em = np.array([i in ir for i in range(len(work))])
+            if es.strip():
+                s = es.strip().lower()
+                em &= (work["Inspection Item"].astype(str).str.lower().str.contains(s,regex=False) | work["Parameter"].astype(str).str.lower().str.contains(s,regex=False)).to_numpy()
+            ev = work[em]
+            ee = st.data_editor(ev[SCHEMA], use_container_width=True, height=520, num_rows="fixed", key=f"edit_grid_{_pid}")
+            if not ee.equals(ev): work = _apply_excel_edits(work, ee)
+        with tab_pdf:
+            st.markdown("### 📄 PDF (source of truth)")
+            c1,c2,c3 = st.columns([1,2,1])
+            with c2:
+                if st.button("🔄 Re-extract Metadata", use_container_width=True):
+                    with st.spinner("Re-extracting…"):
+                        m = extract_metadata_from_pdf(st.session_state.get("proc_pdf", pdf_bytes))
+                        st.session_state["batch"][_pid]["pdf_vendor"] = m.get("vendor_code","")
+                        st.session_state["batch"][_pid]["pdf_part"] = m.get("part_number","")
+                        st.session_state["batch"][_pid]["pdf_model"] = m.get("model_no","")
+                        st.success("Metadata updated!"); st.rerun()
+            pages = pdf_page_pngs(st.session_state.get("proc_pdf", pdf_bytes))
+            if pages:
+                c1,c2,c3 = st.columns([1,1,2])
+                pn = c1.number_input("Page", 1, len(pages), 1, 1)
+                fit = c2.selectbox("Fit", ["Width","Custom"], 0)
+                zm = c3.slider("Zoom %", 40, 300, 100, 10, disabled=fit == "Width")
+                wcss = "100%" if fit == "Width" else f"{zm}%"
+                st.markdown(f'<div style="overflow:auto;max-height:80vh;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc;"><img src="data:image/png;base64,{base64.b64encode(pages[int(pn)-1]).decode()}" style="width:{wcss};display:block;margin:auto"></div>', unsafe_allow_html=True)
+            else: st.warning("Could not render the PDF.")
+            with st.expander("📋 Extracted rows"):
+                st.dataframe(pd.DataFrame({"PDF Item":pdf_item,"PDF Spec":pdf_spec,"PDF Method":pdf_method,"PDF Sampling":pdf_sampling}), use_container_width=True, height=300)
+        with tab_export:
+            st.markdown("### 📤 Export & Download")
+            crit = [i for i in issues if i.get("severity") == "critical"]
+            if crit: st.warning(f"{len(crit)} critical issue(s) remain — review before export.")
+            _MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            try:
+                corrected = build_workbook(excel_bytes, work)
+                rebuilt = _to_xlsx(build_rebuilt(pdf_rows,
+                 {"vendor_code":pdf_vendor,"part_numbers":[pdf_part],"model_no":pdf_model},
+                 work.iloc[0]["Issue date"] if len(work) else None))
+                diffcsv = build_diff(pdf_rows, work, alignment_map).to_csv(index=False).encode("utf-8")
+                c1,c2,c3 = st.columns(3)
+                c1.download_button("⬇ Corrected Excel", corrected, file_name="corrected.xlsx", mime=_MIME, use_container_width=True)
+                c2.download_button("⬇ Rebuilt-from-PDF", rebuilt, file_name="rebuilt.xlsx", mime=_MIME, use_container_width=True)
+                c3.download_button("⬇ Diff (CSV)", diffcsv, file_name="diff.csv", mime="text/csv", use_container_width=True)
+                st.caption("Works from any PC on your LAN — open http://<host-ip>:8502 and click a download button.")
+            except Exception as e:
+                st.error(f"Export failed: {type(e).__name__}: {e}")
+                # CSV fallback so you can ALWAYS get the data
+                st.download_button("⬇ Fallback CSV", work[SCHEMA].to_csv(index=False).encode("utf-8"),
+                 file_name="corrected.csv", mime="text/csv", use_container_width=True)
