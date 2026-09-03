@@ -1668,79 +1668,73 @@ if not _pairing["pairs"]:
     st.error("No pairs could be matched. Reconciliation cannot continue.")
     st.stop()
 
-# TEMPORARY (this step only): continue running the existing single-pair
-# pipeline on just the FIRST matched pair, so we can verify pairing works
-# end-to-end before looping the pipeline over every pair.
-_first_pdf_name, _first_excel_name = _pairing["pairs"][0]
-pdf_file = next(f for f in pdf_files_uploaded if f.name == _first_pdf_name)
-excel_file = next(f for f in excel_files_uploaded if f.name == _first_excel_name)
-st.info(f"Running full reconciliation on the first pair only for now: "
-        f"`{_first_pdf_name}` ↔ `{_first_excel_name}`. "
-        f"Looping over all {len(_pairing['pairs'])} pairs comes next.")
+# ── Batch reconciliation (Problem 1, step 2) ──
+# Resets the batch if the set of matched pairs has changed since last run
+# (e.g. user uploaded a different set of files).
+_pair_names_now = _pairing["pairs"]
+if st.session_state.get("batch_pair_names") != _pair_names_now:
+    st.session_state["batch"] = {}
+    st.session_state["batch_pair_names"] = _pair_names_now
 
-##changed till here
-
-
-
-pdf_bytes = pdf_file.getvalue(); excel_bytes = excel_file.getvalue()
-excel_key = hashlib.md5(excel_bytes).hexdigest()
-try: df_raw = pd.read_excel(io.BytesIO(excel_bytes), dtype=object)
-except Exception as e: st.error(f"Could not read the Excel file: {e}"); st.stop()
-if len(df_raw.columns) == len(SCHEMA): df_raw.columns = SCHEMA
-else:
-    n2a = {}
-    for c in df_raw.columns: n2a.setdefault(_norm(c), c)
-    added = []
-    for c in SCHEMA:
-        a = n2a.get(_norm(c))
-        if a is None: df_raw[c] = None; added.append(c)
-        elif a != c: df_raw = df_raw.rename(columns={a: c})
-    df_raw = df_raw[SCHEMA]
-    if added: st.warning(f"Excel had {len(df_raw.columns)-len(added)} of 19 columns — added {len(added)} empty: {added}.")
-for _c in df_raw.columns: df_raw[_c] = df_raw[_c].map(strip_residuals)
-_npages = pdf_num_pages(pdf_bytes)
-if st.session_state.get("_key") != excel_key and st.session_state.get("_pending") != excel_key:
-    words = _digital_words_per_page(pdf_bytes); scanned = words < 25
-    kind = "digital (instant)" if not scanned else "scanned (on-device OCR)"
-    with st.container(border=True):
-        cc1, cc2 = st.columns(2)
-        cc1.markdown(f"**📄 PDF**\n\n{pdf_file.name}\n\n_{_npages} pages · {kind}_")
-        cc2.markdown(f"**📊 Excel**\n\n{excel_file.name}\n\n_{len(df_raw)} rows · schema OK_")
-        pages_spec = st.text_input(f"Pages with inspection data (of {_npages}) — blank = all.", value="", key="pages_spec")
-        if scanned:
-            quality = st.radio("OCR table quality", ["Accurate (recommended)","Fast (~30% quicker)"], horizontal=True, index=0)
-        else: quality = "Accurate (recommended)"
-        st.session_state["use_multi_ocr"] = st.checkbox("🔍 Use Multi-OCR voting (slower, more accurate)", value=False)
-        if st.button("🚀 Start reconciliation", type="primary", use_container_width=True):
-            st.session_state["_pending"] = excel_key
-            st.session_state["_pages_spec"] = pages_spec
-            st.session_state["_fast"] = quality.startswith("Fast")
-            st.rerun()
+if not st.session_state["batch"]:
+    if st.button(f"🚀 Start Reconciliation ({len(_pair_names_now)} pair(s))",
+                 type="primary", use_container_width=True):
+        batch_results = {}
+        with st.status(f"Reconciling {len(_pair_names_now)} pair(s)…", expanded=True) as _status:
+            pb = st.progress(0, text="Starting…")
+            for idx, (pdf_name, excel_name) in enumerate(_pair_names_now):
+                pb.progress(idx / len(_pair_names_now), text=f"{pdf_name} ↔ {excel_name}…")
+                pdf_file_i = next(f for f in pdf_files_uploaded if f.name == pdf_name)
+                excel_file_i = next(f for f in excel_files_uploaded if f.name == excel_name)
+                pdf_bytes_i = pdf_file_i.getvalue(); excel_bytes_i = excel_file_i.getvalue()
+                try:
+                    df_raw_i = pd.read_excel(io.BytesIO(excel_bytes_i), dtype=object)
+                except Exception as e:
+                    st.error(f"Could not read {excel_name}: {e}"); continue
+                if len(df_raw_i.columns) == len(SCHEMA):
+                    df_raw_i.columns = SCHEMA
+                else:
+                    n2a = {}
+                    for c in df_raw_i.columns: n2a.setdefault(_norm(c), c)
+                    for c in SCHEMA:
+                        a = n2a.get(_norm(c))
+                        if a is None: df_raw_i[c] = None
+                        elif a != c: df_raw_i = df_raw_i.rename(columns={a: c})
+                    df_raw_i = df_raw_i[SCHEMA]
+                for _c in df_raw_i.columns: df_raw_i[_c] = df_raw_i[_c].map(strip_residuals)
+                # Stage A default: reconcile all pages, "Accurate" quality, no multi-OCR.
+                # (Per-pair page-range / quality controls can be added in a later stage.)
+                proc_i = subset_pdf(pdf_bytes_i, "")
+                res = PipelineOrchestrator(proc_i, df_raw_i, fast=False,
+                                            use_multi_ocr=False).run(lambda m, f: None)
+                if not res.success:
+                    st.error(f"Reconciliation failed for {pdf_name} ↔ {excel_name}."); continue
+                meta = res.pdf_metadata
+                batch_results[idx] = {
+                    "pdf_name": pdf_name, "excel_name": excel_name,
+                    "pdf_bytes": pdf_bytes_i, "excel_bytes": excel_bytes_i,
+                    "df_raw": df_raw_i, "proc_pdf": proc_i,
+                    "work": res.final_dataframe,
+                    "auto_summary": res.stage5_reconciliation.data.get('auto_summary', {}),
+                    "issues": res.issues,
+                    "pdf_vendor": meta.get('vendor_code', ''),
+                    "pdf_part": meta.get('part_number', ''),
+                    "pdf_model": meta.get('model_no', ''),
+                    "pdf_rows": res.pdf_rows,
+                    "alignment_map": res.alignment_map,
+                    "pdf_item": res.stage5_reconciliation.data.get('pdf_item', []),
+                    "pdf_spec": res.stage5_reconciliation.data.get('pdf_spec', []),
+                    "pdf_method": res.stage5_reconciliation.data.get('pdf_method', []),
+                    "pdf_sampling": res.stage5_reconciliation.data.get('pdf_sampling', []),
+                    "pdf_src": res.stage3_recognition.data.get('source', ''),
+                    "manual_alignments": {},
+                }
+            pb.empty()
+            _status.update(label=f"✅ {len(batch_results)}/{len(_pair_names_now)} pair(s) reconciled",
+                            state="complete", expanded=False)
+        st.session_state["batch"] = batch_results
+        st.rerun()
     st.stop()
-if st.session_state.get("_key") != excel_key:
-    proc = subset_pdf(pdf_bytes, st.session_state.get("_pages_spec",""))
-    st.session_state["proc_pdf"] = proc
-    with st.status("Reconciling…", expanded=True) as _status:
-        pb = st.progress(0, text="Starting…")
-        res = PipelineOrchestrator(proc, df_raw, fast=st.session_state.get("_fast",False),
-         use_multi_ocr=st.session_state.get("use_multi_ocr",False)).run(lambda m,f: pb.progress(f, text=m))
-        if not res.success: st.error("Reconciliation failed. Please check logs."); st.stop()
-        st.session_state["work"] = res.final_dataframe
-        st.session_state["auto_summary"] = res.stage5_reconciliation.data.get('auto_summary', {})
-        st.session_state["issues"] = res.issues
-        meta = res.pdf_metadata
-        st.session_state["pdf_vendor"] = meta.get('vendor_code','')
-        st.session_state["pdf_part"] = meta.get('part_number','')
-        st.session_state["pdf_model"] = meta.get('model_no','')
-        st.session_state["pdf_rows"] = res.pdf_rows
-        st.session_state["alignment_map"] = res.alignment_map
-        st.session_state["pdf_item"] = res.stage5_reconciliation.data.get('pdf_item', [])
-        st.session_state["pdf_spec"] = res.stage5_reconciliation.data.get('pdf_spec', [])
-        st.session_state["pdf_method"] = res.stage5_reconciliation.data.get('pdf_method', [])
-        st.session_state["pdf_sampling"] = res.stage5_reconciliation.data.get('pdf_sampling', [])
-        st.session_state["pdf_src"] = res.stage3_recognition.data.get('source','')
-        pb.empty(); _status.update(label="✅ Reconciliation ready", state="complete", expanded=False)
-    st.session_state["_key"] = excel_key
 work = st.session_state["work"]
 if any(str(work[c].dtype) != "object" for c in work.columns):
     work = work.astype(object); st.session_state["work"] = work
