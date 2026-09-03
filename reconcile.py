@@ -16,11 +16,20 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Any, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
+import uuid
+
 
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS", "1")
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 import streamlit as st
+
+def generate_unique_id():
+    """Generate a unique ID for each reconciliation session."""
+    # Format: REC-YYYYMMDD-XXXX (where XXXX is random)
+    today = datetime.datetime.now().strftime("%Y%m%d")
+    random_part = str(uuid.uuid4())[:8].upper()
+    return f"REC-{today}-{random_part}"
 
 # ═══ FAST START: paint UI FIRST, load heavy engines AFTER ═══
 st.set_page_config(page_title="Excel ↔ PDF Reconciliation", page_icon="🔍", layout="wide")
@@ -100,6 +109,13 @@ def _tabula_mod():
 def _faiss_mod():
     import faiss
     return faiss
+
+def generate_unique_id():
+    """Generate a unique ID for each reconciliation session."""
+    # Format: REC-YYYYMMDD-XXXX (where XXXX is random)
+    today = datetime.datetime.now().strftime("%Y%m%d")
+    random_part = str(uuid.uuid4())[:8].upper()
+    return f"REC-{today}-{random_part}"
 
 # ════ 1. CONFIG & CONSTANTS ════
 SCHEMA = ["VENDOR CODE","Part number","Model No.","Operation number","MIC Name",
@@ -1716,14 +1732,80 @@ if st.session_state.get("batch_pair_names") != _pair_names_now:
     st.session_state["batch"] = {}
     st.session_state["batch_pair_names"] = _pair_names_now
 
+# if not st.session_state["batch"]:
+#     if st.button(f"🚀 Start Reconciliation ({len(_pair_names_now)} pair(s))",
+#                  type="primary", use_container_width=True):
+#         batch_results = {}
+#         with st.status(f"Reconciling {len(_pair_names_now)} pair(s)…", expanded=True) as _status:
+#             pb = st.progress(0, text="Starting…")
+#             for idx, (pdf_name, excel_name) in enumerate(_pair_names_now):
+#                 pb.progress(idx / len(_pair_names_now), text=f"{pdf_name} ↔ {excel_name}…")
+#                 pdf_file_i = next(f for f in pdf_files_uploaded if f.name == pdf_name)
+#                 excel_file_i = next(f for f in excel_files_uploaded if f.name == excel_name)
+#                 pdf_bytes_i = pdf_file_i.getvalue(); excel_bytes_i = excel_file_i.getvalue()
+#                 try:
+#                     df_raw_i = pd.read_excel(io.BytesIO(excel_bytes_i), dtype=object)
+#                 except Exception as e:
+#                     st.error(f"Could not read {excel_name}: {e}"); continue
+#                 if len(df_raw_i.columns) == len(SCHEMA):
+#                     df_raw_i.columns = SCHEMA
+#                 else:
+#                     n2a = {}
+#                     for c in df_raw_i.columns: n2a.setdefault(_norm(c), c)
+#                     for c in SCHEMA:
+#                         a = n2a.get(_norm(c))
+#                         if a is None: df_raw_i[c] = None
+#                         elif a != c: df_raw_i = df_raw_i.rename(columns={a: c})
+#                     df_raw_i = df_raw_i[SCHEMA]
+#                 for _c in df_raw_i.columns: df_raw_i[_c] = df_raw_i[_c].map(strip_residuals)
+#                 # Stage A default: reconcile all pages, "Accurate" quality, no multi-OCR.
+#                 # (Per-pair page-range / quality controls can be added in a later stage.)
+#                 proc_i = subset_pdf(pdf_bytes_i, "")
+#                 res = PipelineOrchestrator(proc_i, df_raw_i, fast=False,
+#                                             use_multi_ocr=False).run(lambda m, f: None)
+#                 if not res.success:
+#                     st.error(f"Reconciliation failed for {pdf_name} ↔ {excel_name}."); continue
+#                 meta = res.pdf_metadata
+#                 batch_results[idx] = {
+#                     "pdf_name": pdf_name, "excel_name": excel_name,
+#                     "pdf_bytes": pdf_bytes_i, "excel_bytes": excel_bytes_i,
+#                     "df_raw": df_raw_i, "proc_pdf": proc_i,
+#                     "work": res.final_dataframe,
+#                     "auto_summary": res.stage5_reconciliation.data.get('auto_summary', {}),
+#                     "issues": res.issues,
+#                     "pdf_vendor": meta.get('vendor_code', ''),
+#                     "pdf_part": meta.get('part_number', ''),
+#                     "pdf_model": meta.get('model_no', ''),
+#                     "pdf_rows": res.pdf_rows,
+#                     "alignment_map": res.alignment_map,
+#                     "pdf_item": res.stage5_reconciliation.data.get('pdf_item', []),
+#                     "pdf_spec": res.stage5_reconciliation.data.get('pdf_spec', []),
+#                     "pdf_method": res.stage5_reconciliation.data.get('pdf_method', []),
+#                     "pdf_sampling": res.stage5_reconciliation.data.get('pdf_sampling', []),
+#                     "pdf_src": res.stage3_recognition.data.get('source', ''),
+#                     "manual_alignments": {},
+#                 }
+#             pb.empty()
+#             _status.update(label=f"✅ {len(batch_results)}/{len(_pair_names_now)} pair(s) reconciled",
+#                             state="complete", expanded=False)
+#         st.session_state["batch"] = batch_results
+#         st.rerun()
+#     st.stop()
+
 if not st.session_state["batch"]:
     if st.button(f"🚀 Start Reconciliation ({len(_pair_names_now)} pair(s))",
                  type="primary", use_container_width=True):
         batch_results = {}
-        with st.status(f"Reconciling {len(_pair_names_now)} pair(s)…", expanded=True) as _status:
+        # Generate a unique batch ID for this entire reconciliation session
+        batch_id = generate_unique_id()
+        
+        with st.status(f"Reconciling {len(_pair_names_now)} pair(s)… (Batch: {batch_id})", expanded=True) as _status:
             pb = st.progress(0, text="Starting…")
             for idx, (pdf_name, excel_name) in enumerate(_pair_names_now):
-                pb.progress(idx / len(_pair_names_now), text=f"{pdf_name} ↔ {excel_name}…")
+                # Generate a unique pair ID for each pair within the batch
+                pair_id = f"{batch_id}-P{idx+1:02d}"
+                pb.progress(idx / len(_pair_names_now), text=f"{pdf_name} ↔ {excel_name} (ID: {pair_id})…")
+                
                 pdf_file_i = next(f for f in pdf_files_uploaded if f.name == pdf_name)
                 excel_file_i = next(f for f in excel_files_uploaded if f.name == excel_name)
                 pdf_bytes_i = pdf_file_i.getvalue(); excel_bytes_i = excel_file_i.getvalue()
@@ -1742,8 +1824,6 @@ if not st.session_state["batch"]:
                         elif a != c: df_raw_i = df_raw_i.rename(columns={a: c})
                     df_raw_i = df_raw_i[SCHEMA]
                 for _c in df_raw_i.columns: df_raw_i[_c] = df_raw_i[_c].map(strip_residuals)
-                # Stage A default: reconcile all pages, "Accurate" quality, no multi-OCR.
-                # (Per-pair page-range / quality controls can be added in a later stage.)
                 proc_i = subset_pdf(pdf_bytes_i, "")
                 res = PipelineOrchestrator(proc_i, df_raw_i, fast=False,
                                             use_multi_ocr=False).run(lambda m, f: None)
@@ -1751,6 +1831,8 @@ if not st.session_state["batch"]:
                     st.error(f"Reconciliation failed for {pdf_name} ↔ {excel_name}."); continue
                 meta = res.pdf_metadata
                 batch_results[idx] = {
+                    "pair_id": pair_id,  # NEW: Add unique pair ID
+                    "batch_id": batch_id,  # NEW: Add batch ID
                     "pdf_name": pdf_name, "excel_name": excel_name,
                     "pdf_bytes": pdf_bytes_i, "excel_bytes": excel_bytes_i,
                     "df_raw": df_raw_i, "proc_pdf": proc_i,
@@ -1770,25 +1852,47 @@ if not st.session_state["batch"]:
                     "manual_alignments": {},
                 }
             pb.empty()
-            _status.update(label=f"✅ {len(batch_results)}/{len(_pair_names_now)} pair(s) reconciled",
+            _status.update(label=f"✅ {len(batch_results)}/{len(_pair_names_now)} pair(s) reconciled (Batch: {batch_id})",
                             state="complete", expanded=False)
         st.session_state["batch"] = batch_results
         st.rerun()
     st.stop()
+
 # ── Per-pair result tabs (Problem 1, step 2) ──
 # Each matched pair gets its own outer tab; the same 5 inner tabs from the
 # original single-pair app appear inside each one, driven by that pair's
 # own stored results (never the shared flat keys the original app used).
 _pair_ids = sorted(st.session_state["batch"].keys())
-_outer_labels = [f"✅ {st.session_state['batch'][pid]['pdf_name']}" for pid in _pair_ids]
+# _outer_labels = [f"✅ {st.session_state['batch'][pid]['pdf_name']}" for pid in _pair_ids]
+
+_outer_labels = [
+    f"✅ {st.session_state['batch'][pid]['pdf_name']} (ID: {st.session_state['batch'][pid].get('pair_id', 'N/A')})" 
+    for pid in _pair_ids
+]
 _outer_tabs = st.tabs(_outer_labels)
 for _oi, _pid in enumerate(_pair_ids):
     with _outer_tabs[_oi]:
         _pd = st.session_state["batch"][_pid]
+        
+        # Display the unique ID prominently
+        st.markdown(f"""
+        <div style="background: #f0f4ff; padding: 10px 16px; border-radius: 8px; border-left: 4px solid #3b82f6; margin-bottom: 16px;">
+            <span style="font-size: 13px; color: #64748b;">🆔 Pair ID:</span>
+            <span style="font-size: 14px; font-weight: 600; color: #1e3a8a; font-family: monospace;">
+                {_pd.get('pair_id', 'N/A')}
+            </span>
+            <span style="margin-left: 20px; font-size: 13px; color: #64748b;">📦 Batch:</span>
+            <span style="font-size: 14px; font-weight: 500; color: #1e3a8a; font-family: monospace;">
+                {_pd.get('batch_id', 'N/A')}
+            </span>
+        </div>
+        """, unsafe_allow_html=True)
+        
         pdf_bytes = _pd["pdf_bytes"]; excel_bytes = _pd["excel_bytes"]
         df_raw = _pd["df_raw"]; df_orig = df_raw
         alignment_map = _pd.get("alignment_map", [])
         work = _pd["work"]
+        # ... rest of the code continues as before
         if any(str(work[c].dtype) != "object" for c in work.columns):
             work = work.astype(object); st.session_state["batch"][_pid]["work"] = work
         work["Decimal Places"] = work["Decimal Places"].map(lambda v: None if safe_float(v) == 0 else v)
