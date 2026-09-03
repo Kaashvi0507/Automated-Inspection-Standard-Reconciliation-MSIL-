@@ -1665,27 +1665,47 @@ if not (pdf_files_uploaded and excel_files_uploaded):
     st.info("⬆️ Upload one or more **PDFs** and **Excels** to begin (up to 10 each).")
     st.stop()
 
-# ── Batch pairing preview (Problem 1, step 1) ──
-# Match PDFs to Excels by (Vendor Code, Part Number). Exact match only —
-# unmatched files are surfaced, never force-paired. (pair_files() defined
-# above, in section 12b.)
+# # ── Batch pairing preview (Problem 1, step 1) ──
+# # Match PDFs to Excels by (Vendor Code, Part Number). Exact match only —
+# # unmatched files are surfaced, never force-paired. (pair_files() defined
+# # above, in section 12b.)
+# _pdf_kv = [(f.name, f.getvalue()) for f in pdf_files_uploaded]
+# _excel_kv = [(f.name, f.getvalue()) for f in excel_files_uploaded]
+# _pairing = pair_files(_pdf_kv, _excel_kv)
+
+# with st.container(border=True):
+#     st.markdown(f"**🔗 Auto-paired: {len(_pairing['pairs'])} pair(s)**")
+#     for pdf_name, excel_name in _pairing["pairs"]:
+#         st.markdown(f"- 📄 `{pdf_name}` ↔ 📊 `{excel_name}`")
+#     if _pairing["unmatched_pdfs"]:
+#         st.warning(f"Unmatched PDFs (no Vendor Code + Part Number match found): "
+#                    f"{', '.join(_pairing['unmatched_pdfs'])}")
+#     if _pairing["unmatched_excels"]:
+#         st.warning(f"Unmatched Excels (no Vendor Code + Part Number match found): "
+#                    f"{', '.join(_pairing['unmatched_excels'])}")
+
+# if not _pairing["pairs"]:
+#     st.error("No pairs could be matched. Reconciliation cannot continue.")
+#     st.stop()
+
+# ── Batch pairing preview (serial order) ──
+# Serial matching: first PDF ↔ first Excel, second ↔ second, etc.
 _pdf_kv = [(f.name, f.getvalue()) for f in pdf_files_uploaded]
 _excel_kv = [(f.name, f.getvalue()) for f in excel_files_uploaded]
-_pairing = pair_files(_pdf_kv, _excel_kv)
+_pairing = pair_files_serial(_pdf_kv, _excel_kv)
 
 with st.container(border=True):
-    st.markdown(f"**🔗 Auto-paired: {len(_pairing['pairs'])} pair(s)**")
-    for pdf_name, excel_name in _pairing["pairs"]:
-        st.markdown(f"- 📄 `{pdf_name}` ↔ 📊 `{excel_name}`")
+    st.markdown(f"**🔗 Serial paired: {len(_pairing['pairs'])} pair(s)**")
+    for idx, (pdf_name, excel_name) in enumerate(_pairing["pairs"], 1):
+        st.markdown(f"- Pair {idx}: 📄 `{pdf_name}` ↔ 📊 `{excel_name}`")
+    
     if _pairing["unmatched_pdfs"]:
-        st.warning(f"Unmatched PDFs (no Vendor Code + Part Number match found): "
-                   f"{', '.join(_pairing['unmatched_pdfs'])}")
+        st.warning(f"Unmatched PDFs (no corresponding Excel): {', '.join(_pairing['unmatched_pdfs'])}")
     if _pairing["unmatched_excels"]:
-        st.warning(f"Unmatched Excels (no Vendor Code + Part Number match found): "
-                   f"{', '.join(_pairing['unmatched_excels'])}")
+        st.warning(f"Unmatched Excels (no corresponding PDF): {', '.join(_pairing['unmatched_excels'])}")
 
 if not _pairing["pairs"]:
-    st.error("No pairs could be matched. Reconciliation cannot continue.")
+    st.error("No pairs could be formed. Please upload at least one PDF and one Excel.")
     st.stop()
 
 # ── Batch reconciliation (Problem 1, step 2) ──
