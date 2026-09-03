@@ -1920,7 +1920,7 @@ for _oi, _pid in enumerate(_pair_ids):
         #     with cf: flag = st.radio("Show", ["All rows","Rows with issues","Rows with PDF match","Rows missing PDF match"], horizontal=True, index=0, label_visibility="collapsed")
         #     with cs: search = st.text_input("search", placeholder="🔎 Search…", label_visibility="collapsed", key=f"review_search_{_pid}")
         with tab_review:
-    st.markdown("### 🔍 Review & Fix")
+            st.markdown("### 🔍 Review & Fix")
     ct, cf, cs = st.columns([1,2,3])
     with ct: 
         st.session_state["show_confidence"] = st.checkbox(
@@ -1943,8 +1943,7 @@ for _oi, _pid in enumerate(_pair_ids):
             placeholder="🔎 Search…", 
             label_visibility="collapsed", 
             key=f"review_search_{_pid}"
-        )
-            mask = np.ones(len(work), dtype=bool)
+              mask = np.ones(len(work), dtype=bool)
             if flag == "Rows with issues":
                 ir = {i["row_index"] for i in issues}; mask = np.array([i in ir for i in range(len(work))])
             elif flag == "Rows with PDF match": mask &= np.array([bool(str(s).strip()) for s in pdf_spec])
@@ -1961,8 +1960,8 @@ for _oi, _pid in enumerate(_pair_ids):
             c1,c2,c3 = st.columns([1,2,1])
             with c1:
                 if st.button("◀ Previous", disabled=_pd.get("page",1) <= 1): _pd["page"] = max(1, _pd.get("page",1)-1); st.rerun()
-            # with c2: _pd["page"] = st.number_input("Page", 1, tp, min(tp, _pd.get("page",1)), 1, key=f"page_in_{_pid}", label_visibility="collapsed")
-            with c2: _pd["page"] = st.number_input("Page", 1, tp, min(tp, _pd.get("page",1)), 1, key=f"page_in_{_pid}", label_visibility="collapsed")
+  # with c2: _pd["page"] = st.number_input("Page", 1, tp, min(tp, _pd.get("page",1)), 1, key=f"page_in_{_pid}", label_visibility="collapsed")
+    with c2: _pd["page"] = st.number_input("Page", 1, tp, min(tp, _pd.get("page",1)), 1, key=f"page_in_{_pid}", label_visibility="collapsed")
             with c3:
                 if st.button("Next ▶", disabled=_pd.get("page",1) >= tp): _pd["page"] = min(tp, _pd.get("page",1)+1); st.rerun()
             si = (_pd.get("page",1)-1)*rpp; view = view_full.iloc[si:min(si+rpp, total_rows)]
