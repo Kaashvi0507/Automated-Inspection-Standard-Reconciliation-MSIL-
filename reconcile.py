@@ -1853,7 +1853,74 @@ if st.session_state.get("batch_pair_names") != _pair_names_now:
 #         st.rerun()
 #     st.stop()
 
+# if not st.session_state["batch"]:
 if not st.session_state["batch"]:
+    if st.button(f"🚀 Start Reconciliation ({len(_pair_names_now)} pair(s))",
+                 type="primary", use_container_width=True):
+        batch_results = {}
+        # Generate a unique batch ID for this entire reconciliation session
+        batch_id = generate_unique_id()
+        
+        with st.status(f"Reconciling {len(_pair_names_now)} pair(s)… (Batch: {batch_id})", expanded=True) as _status:
+            pb = st.progress(0, text="Starting…")
+            for idx, (pdf_name, excel_name) in enumerate(_pair_names_now):
+                # 🔥🔥 Generate a HARDWARE-UNIQUE ID using uuid4().hex (up to 32 random chars)
+                # This ensures NO TWO FILES share the same key in Streamlit.
+                pair_id = f"{batch_id}-{uuid.uuid4().hex[:10]}" 
+                
+                pb.progress(idx / len(_pair_names_now), text=f"{pdf_name} ↔ {excel_name} (ID: {pair_id})…")
+                
+                pdf_file_i = next(f for f in pdf_files_uploaded if f.name == pdf_name)
+                excel_file_i = next(f for f in excel_files_uploaded if f.name == excel_name)
+                pdf_bytes_i = pdf_file_i.getvalue(); excel_bytes_i = excel_file_i.getvalue()
+                try:
+                    df_raw_i = pd.read_excel(io.BytesIO(excel_bytes_i), dtype=object)
+                except Exception as e:
+                    st.error(f"Could not read {excel_name}: {e}"); continue
+                if len(df_raw_i.columns) == len(SCHEMA):
+                    df_raw_i.columns = SCHEMA
+                else:
+                    n2a = {}
+                    for c in df_raw_i.columns: n2a.setdefault(_norm(c), c)
+                    for c in SCHEMA:
+                        a = n2a.get(_norm(c))
+                        if a is None: df_raw_i[c] = None
+                        elif a != c: df_raw_i = df_raw_i.rename(columns={a: c})
+                    df_raw_i = df_raw_i[SCHEMA]
+                for _c in df_raw_i.columns: df_raw_i[_c] = df_raw_i[_c].map(strip_residuals)
+                proc_i = subset_pdf(pdf_bytes_i, "")
+                res = PipelineOrchestrator(proc_i, df_raw_i, fast=False,
+                                            use_multi_ocr=False).run(lambda m, f: None)
+                if not res.success:
+                    st.error(f"Reconciliation failed for {pdf_name} ↔ {excel_name}."); continue
+                meta = res.pdf_metadata
+                batch_results[idx] = {
+                    "pair_id": pair_id,  # ✅ Uses the UUID-based pair_id
+                    "batch_id": batch_id, 
+                    "pdf_name": pdf_name, "excel_name": excel_name,
+                    "pdf_bytes": pdf_bytes_i, "excel_bytes": excel_bytes_i,
+                    "df_raw": df_raw_i, "proc_pdf": proc_i,
+                    "work": res.final_dataframe,
+                    "auto_summary": res.stage5_reconciliation.data.get('auto_summary', {}),
+                    "issues": res.issues,
+                    "pdf_vendor": meta.get('vendor_code', ''),
+                    "pdf_part": meta.get('part_number', ''),
+                    "pdf_model": meta.get('model_no', ''),
+                    "pdf_rows": res.pdf_rows,
+                    "alignment_map": res.alignment_map,
+                    "pdf_item": res.stage5_reconciliation.data.get('pdf_item', []),
+                    "pdf_spec": res.stage5_reconciliation.data.get('pdf_spec', []),
+                    "pdf_method": res.stage5_reconciliation.data.get('pdf_method', []),
+                    "pdf_sampling": res.stage5_reconciliation.data.get('pdf_sampling', []),
+                    "pdf_src": res.stage3_recognition.data.get('source', ''),
+                    "manual_alignments": {},
+                }
+            pb.empty()
+            _status.update(label=f"✅ {len(batch_results)}/{len(_pair_names_now)} pair(s) reconciled (Batch: {batch_id})",
+                            state="complete", expanded=False)
+        st.session_state["batch"] = batch_results
+        st.rerun()
+    st.stop() 
     if st.button(f"🚀 Start Reconciliation ({len(_pair_names_now)} pair(s))",
                  type="primary", use_container_width=True):
         batch_results = {}
@@ -2266,10 +2333,64 @@ for _oi, _pid in enumerate(_pair_ids):
         #     ee = st.data_editor(ev[SCHEMA], use_container_width=True, height=520, num_rows="fixed", key=f"edit_grid_{_pid}_unique")
         #     if not ee.equals(ev):
         #         work = _apply_excel_edits(work, ee) 
-                with tab_edit:
-                  st.markdown("### ✏️ Edit Excel")
+            #     with tab_edit:
+            #       st.markdown("### ✏️ Edit Excel")
             
-            # 🔑 Use the UNIQUE pair_id string (e.g. "REC-20260904-P01") for ALL keys
+            # # 🔑 Use the UNIQUE pair_id string (e.g. "REC-20260904-P01") for ALL keys
+            # unique_key = _pd.get("pair_id", f"pair_{_pid}")
+            
+            # b1,b2,b3,b4 = st.columns([1,1,1,2])
+            # with b1:
+            #     if st.button("💾 Save Changes", type="primary", use_container_width=True, key=f"save_btn_{unique_key}"):
+            #         ok, ni, cr = save_and_validate(work, pdf_vendor, pdf_part, pdf_model)
+            #         if ok: st.success(f"✅ Saved! {cr} critical."); st.rerun()
+            # with b2:
+            #     if st.button("🔄 Re-apply Automation", use_container_width=True, key=f"reapply_btn_{unique_key}"):
+            #         wu, ns, fc = reapply_automation(work)
+            #         st.session_state["batch"][_pid]["work"] = wu
+            #         st.session_state["batch"][_pid]["auto_summary"] = ns
+            #         st.success(f"✅ Fixed {fc} cells.")
+            #         st.rerun()
+            # with b3:
+            #     if st.button("⭮ Renumber Operations", use_container_width=True, key=f"renumber_ops_{unique_key}"):
+            #         c = 1
+            #         for i in range(len(work)):
+            #             if _row_has_inspection_content(work.iloc[i]):
+            #                 work.at[work.index[i], "Operation number"] = c
+            #                 c += 1
+            #             st.session_state["batch"][_pid]["work"] = work
+            #             st.rerun()
+            # with b4:
+            #     st.caption("💡 Edit any cell, then Save.")
+            # st.divider()
+            # c1, c2 = st.columns([1,3])
+            # ef = c1.radio("Show", ["All rows","Rows with issues"], key=f"edit_filter_{unique_key}", label_visibility="collapsed")
+            # es = c2.text_input("edit_search", placeholder="🔎 Search…", label_visibility="collapsed", key=f"edit_search_{unique_key}")
+    
+            # em = np.ones(len(work), dtype=bool)
+            # if ef == "Rows with issues":
+            #     ir = {i["row_index"] for i in issues}
+            #     em = np.array([i in ir for i in range(len(work))])
+            # if es.strip():
+            #     s = es.strip().lower()
+            #     em &= (work["Inspection Item"].astype(str).str.lower().str.contains(s, regex=False) | 
+            #            work["Parameter"].astype(str).str.lower().str.contains(s, regex=False)).to_numpy()
+            
+            # ev = work[em]
+            # # 🔑 Unique key guaranteed for each Excel file
+            # ee = st.data_editor(
+            #     ev[SCHEMA], 
+            #     use_container_width=True, 
+            #     height=520, 
+            #     num_rows="fixed", 
+            #     key=f"edit_grid_{unique_key}"
+            # )
+            # if not ee.equals(ev):
+            #     work = _apply_excel_edits(work, ee)   
+                    with tab_edit:
+                        st.markdown("### ✏️ Edit Excel")
+            
+            # 🔥 Grab the UUID-based unique key for this specific pair
             unique_key = _pd.get("pair_id", f"pair_{_pid}")
             
             b1,b2,b3,b4 = st.columns([1,1,1,2])
@@ -2310,7 +2431,7 @@ for _oi, _pid in enumerate(_pair_ids):
                        work["Parameter"].astype(str).str.lower().str.contains(s, regex=False)).to_numpy()
             
             ev = work[em]
-            # 🔑 Unique key guaranteed for each Excel file
+            # 🔥 This key now contains the UUID AND the index, making it 100% unique
             ee = st.data_editor(
                 ev[SCHEMA], 
                 use_container_width=True, 
@@ -2319,7 +2440,7 @@ for _oi, _pid in enumerate(_pair_ids):
                 key=f"edit_grid_{unique_key}"
             )
             if not ee.equals(ev):
-                work = _apply_excel_edits(work, ee)   
+                work = _apply_excel_edits(work, ee)
         with tab_pdf:
             st.markdown("### 📄 PDF (source of truth)")
             c1,c2,c3 = st.columns([1,2,1])
