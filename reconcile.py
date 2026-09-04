@@ -2264,7 +2264,7 @@ for _oi, _pid in enumerate(_pair_ids):
                 s = es.strip().lower()
                 em &= (work["Inspection Item"].astype(str).str.lower().str.contains(s,regex=False) | work["Parameter"].astype(str).str.lower().str.contains(s,regex=False)).to_numpy()
             ev = work[em]
-            ee = st.data_editor(ev[SCHEMA], use_container_width=True, height=520, num_rows="fixed", key=f"edit_grid_{_pid}")
+            ee = st.data_editor(ev[SCHEMA], use_container_width=True, height=520, num_rows="fixed", key=f"edit_grid_{_pid}_{idx}")
             if not ee.equals(ev): work = _apply_excel_edits(work, ee)
         with tab_pdf:
             st.markdown("### 📄 PDF (source of truth)")
