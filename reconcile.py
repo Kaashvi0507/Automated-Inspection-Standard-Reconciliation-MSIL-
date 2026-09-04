@@ -2223,22 +2223,69 @@ for _oi, _pid in enumerate(_pair_ids):
                         if cc.form_submit_button("🗑️ Clear", use_container_width=True):
                             st.session_state["batch"][_pid]["manual_alignments"] = {}
                             st.rerun()
-        with tab_edit:
-            st.markdown("### ✏️ Edit Excel")
+        # with tab_edit:
+        #     st.markdown("### ✏️ Edit Excel")
+        #     b1,b2,b3,b4 = st.columns([1,1,1,2])
+        #     with b1:
+        #         if st.button("💾 Save Changes", type="primary", use_container_width=True, key=f"save_btn_{_pid}"):
+        #             ok, ni, cr = save_and_validate(work, pdf_vendor, pdf_part, pdf_model)
+        #             if ok: st.success(f"✅ Saved! {cr} critical."); st.rerun()
+        #     with b2:
+        #         if st.button("🔄 Re-apply Automation", use_container_width=True, key=f"reapply_btn_{_pid}"):
+        #             wu, ns, fc = reapply_automation(work)
+        #             st.session_state["batch"][_pid]["work"] = wu
+        #             st.session_state["batch"][_pid]["auto_summary"] = ns
+        #             st.success(f"✅ Fixed {fc} cells.")
+        #             st.rerun()
+        #     with b3:
+        #         if st.button("⭮ Renumber Operations", use_container_width=True, key=f"renumber_ops_{_pid}"):
+        #             c = 1
+        #             for i in range(len(work)):
+        #                 if _row_has_inspection_content(work.iloc[i]):
+        #                     work.at[work.index[i], "Operation number"] = c
+        #                     c += 1
+        #                 st.session_state["batch"][_pid]["work"] = work
+        #                 st.rerun()
+        #     with b4:
+        #         st.caption("💡 Edit any cell, then Save.")
+        #     st.divider()
+        #     c1, c2 = st.columns([1,3])
+        #     ef = c1.radio("Show", ["All rows","Rows with issues"], key=f"edit_filter_{_pid}", label_visibility="collapsed")
+        #     es = c2.text_input("edit_search", placeholder="🔎 Search…", label_visibility="collapsed", key=f"edit_search_{_pid}")
+    
+        #     em = np.ones(len(work), dtype=bool)
+        #     if ef == "Rows with issues":
+        #         ir = {i["row_index"] for i in issues}
+        #         em = np.array([i in ir for i in range(len(work))])
+        #     if es.strip():
+        #         s = es.strip().lower()
+        #         em &= (work["Inspection Item"].astype(str).str.lower().str.contains(s, regex=False) | 
+        #        work["Parameter"].astype(str).str.lower().str.contains(s, regex=False)).to_numpy()
+        #     ev = work[em]
+        #     # Use a unique key specific to the pair ID (_pid) to avoid StreamlitDuplicateElementKey
+        #     ee = st.data_editor(ev[SCHEMA], use_container_width=True, height=520, num_rows="fixed", key=f"edit_grid_{_pid}_unique")
+        #     if not ee.equals(ev):
+        #         work = _apply_excel_edits(work, ee) 
+                with tab_edit:
+                  st.markdown("### ✏️ Edit Excel")
+            
+            # 🔑 Use the UNIQUE pair_id string (e.g. "REC-20260904-P01") for ALL keys
+            unique_key = _pd.get("pair_id", f"pair_{_pid}")
+            
             b1,b2,b3,b4 = st.columns([1,1,1,2])
             with b1:
-                if st.button("💾 Save Changes", type="primary", use_container_width=True, key=f"save_btn_{_pid}"):
+                if st.button("💾 Save Changes", type="primary", use_container_width=True, key=f"save_btn_{unique_key}"):
                     ok, ni, cr = save_and_validate(work, pdf_vendor, pdf_part, pdf_model)
                     if ok: st.success(f"✅ Saved! {cr} critical."); st.rerun()
             with b2:
-                if st.button("🔄 Re-apply Automation", use_container_width=True, key=f"reapply_btn_{_pid}"):
+                if st.button("🔄 Re-apply Automation", use_container_width=True, key=f"reapply_btn_{unique_key}"):
                     wu, ns, fc = reapply_automation(work)
                     st.session_state["batch"][_pid]["work"] = wu
                     st.session_state["batch"][_pid]["auto_summary"] = ns
                     st.success(f"✅ Fixed {fc} cells.")
                     st.rerun()
             with b3:
-                if st.button("⭮ Renumber Operations", use_container_width=True, key=f"renumber_ops_{_pid}"):
+                if st.button("⭮ Renumber Operations", use_container_width=True, key=f"renumber_ops_{unique_key}"):
                     c = 1
                     for i in range(len(work)):
                         if _row_has_inspection_content(work.iloc[i]):
@@ -2250,8 +2297,8 @@ for _oi, _pid in enumerate(_pair_ids):
                 st.caption("💡 Edit any cell, then Save.")
             st.divider()
             c1, c2 = st.columns([1,3])
-            ef = c1.radio("Show", ["All rows","Rows with issues"], key=f"edit_filter_{_pid}", label_visibility="collapsed")
-            es = c2.text_input("edit_search", placeholder="🔎 Search…", label_visibility="collapsed", key=f"edit_search_{_pid}")
+            ef = c1.radio("Show", ["All rows","Rows with issues"], key=f"edit_filter_{unique_key}", label_visibility="collapsed")
+            es = c2.text_input("edit_search", placeholder="🔎 Search…", label_visibility="collapsed", key=f"edit_search_{unique_key}")
     
             em = np.ones(len(work), dtype=bool)
             if ef == "Rows with issues":
@@ -2260,12 +2307,19 @@ for _oi, _pid in enumerate(_pair_ids):
             if es.strip():
                 s = es.strip().lower()
                 em &= (work["Inspection Item"].astype(str).str.lower().str.contains(s, regex=False) | 
-               work["Parameter"].astype(str).str.lower().str.contains(s, regex=False)).to_numpy()
+                       work["Parameter"].astype(str).str.lower().str.contains(s, regex=False)).to_numpy()
+            
             ev = work[em]
-            # Use a unique key specific to the pair ID (_pid) to avoid StreamlitDuplicateElementKey
-            ee = st.data_editor(ev[SCHEMA], use_container_width=True, height=520, num_rows="fixed", key=f"edit_grid_{_pid}_unique")
+            # 🔑 Unique key guaranteed for each Excel file
+            ee = st.data_editor(
+                ev[SCHEMA], 
+                use_container_width=True, 
+                height=520, 
+                num_rows="fixed", 
+                key=f"edit_grid_{unique_key}"
+            )
             if not ee.equals(ev):
-                work = _apply_excel_edits(work, ee)
+                work = _apply_excel_edits(work, ee)   
         with tab_pdf:
             st.markdown("### 📄 PDF (source of truth)")
             c1,c2,c3 = st.columns([1,2,1])
