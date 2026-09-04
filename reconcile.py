@@ -1226,14 +1226,19 @@ def get_all_issues(df, pv, pp, pm, pdf_rows=None, alignment_map=None):
     return sorted(all_issues, key=lambda x: {"critical":0,"warning":1}.get(x.get("severity",""),2))
 
 # ════ 9. ALIGNMENT ENGINE (+ Phase 3) ════
+# @st.cache_resource(show_spinner=False)
+# def _embed_model():
+#     from sentence_transformers import SentenceTransformer
+#     local = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "all-MiniLM-L6-v2")
+#     return SentenceTransformer(local if os.path.isdir(local) else "all-MiniLM-L6-v2")
 @st.cache_resource(show_spinner=False)
 def _embed_model():
     from sentence_transformers import SentenceTransformer
-    local = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "all-MiniLM-L6-v2")
-    return SentenceTransformer(local if os.path.isdir(local) else "all-MiniLM-L6-v2")
+    local = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "all-mpnet-base-v2")
+    return SentenceTransformer(local if os.path.isdir(local) else "sentence-transformers/all-mpnet-base-v2")
 @st.cache_data(show_spinner=False)
 def _encode_texts(texts, model):
-    return model.encode(texts, normalize_embeddings=True, batch_size=64, show_progress_bar=False)
+    return model.encode(texts, normalize_embeddings=True, batch_size=128, show_progress_bar=False)
 _ENUM_PREFIX_RE = re.compile(r"^\s*[\(\[]?\s*\d{1,3}(?:\.\d{1,2})?\s*[\)\]]?\s*\.?\s*")
 def _match_norm(text):
     if text is None: return ""
