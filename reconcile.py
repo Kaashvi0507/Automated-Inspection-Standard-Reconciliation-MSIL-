@@ -1634,7 +1634,47 @@ class PipelineOrchestrator:
 #     unmatched_pdfs = [fname for fname, b in pdf_files if fname not in paired_pdf_names]
 #     unmatched_excels = [fname for fname, b in excel_files if fname not in paired_excel_names]
 #     return {"pairs": pairs, "unmatched_pdfs": unmatched_pdfs, "unmatched_excels": unmatched_excels}
+def _extract_pdf_vc_pn(pdf_bytes):
+    """Extract (vendor_code, part_number) from a PDF, for post-hoc pair verification
+    (NOT used for pairing itself — pairing is purely serial/upload-order)."""
+    meta = extract_metadata_from_pdf(pdf_bytes)
+    return meta.get("vendor_code"), meta.get("part_number")
 
+def _extract_excel_vc_pn(excel_bytes):
+    """Extract (vendor_code, part_number) from an Excel's columns, for post-hoc
+    pair verification."""
+    try:
+        df = pd.read_excel(io.BytesIO(excel_bytes), dtype=object)
+    except Exception:
+        return None, None
+    col_map = {_norm(c): c for c in df.columns}
+    vc_col, pn_col = col_map.get(_norm("VENDOR CODE")), col_map.get(_norm("Part number"))
+    vc = pn = None
+    if vc_col:
+        s = df[vc_col].dropna()
+        if not s.empty: vc = str(s.iloc[0]).strip()
+    if pn_col:
+        s = df[pn_col].dropna()
+        if not s.empty: pn = str(s.iloc[0]).strip()
+    return vc, pn
+
+def verify_pair_metadata(pdf_bytes, excel_bytes):
+    """Post-hoc verification only — never affects pairing or blocks reconciliation.
+    Compares Vendor Code + Part Number extracted from the PDF against the Excel,
+    for a pair already formed by serial upload order, so a human can spot an
+    accidental swap before clicking Start Reconciliation.
+    Requires BOTH Vendor Code and Part Number to match for a 'match' verdict."""
+    pdf_vc, pdf_pn = _extract_pdf_vc_pn(pdf_bytes)
+    excel_vc, excel_pn = _extract_excel_vc_pn(excel_bytes)
+    have_all = all([pdf_vc, pdf_pn, excel_vc, excel_pn])
+    if not have_all:
+        return {"status": "unverifiable", "pdf_vc": pdf_vc, "pdf_pn": pdf_pn,
+                "excel_vc": excel_vc, "excel_pn": excel_pn}
+    vc_match = _norm(pdf_vc) == _norm(excel_vc)
+    pn_match = _norm(pdf_pn) == _norm(excel_pn)
+    status = "match" if (vc_match and pn_match) else "mismatch"
+    return {"status": status, "pdf_vc": pdf_vc, "pdf_pn": pdf_pn,
+            "excel_vc": excel_vc, "excel_pn": excel_pn}
 def pair_files_serial(pdf_files, excel_files):
     """
     Simple serial pairing: first PDF matches first Excel, second with second, etc.
@@ -1712,9 +1752,16 @@ _pairing = pair_files_serial(_pdf_kv, _excel_kv)
 
 with st.container(border=True):
     st.markdown(f"**🔗 Serial paired: {len(_pairing['pairs'])} pair(s)**")
-    for idx, (pdf_name, excel_name) in enumerate(_pairing["pairs"], 1):
-        st.markdown(f"- Pair {idx}: 📄 `{pdf_name}` ↔ 📊 `{excel_name}`")
-    
+    for idx, (pdf_name, excel_name) in enumerate(_pairing["pairs"]):
+        v = verify_pair_metadata(_pdf_kv[idx][1], _excel_kv[idx][1])
+        icon = {"match": "✅", "mismatch": "⚠️", "unverifiable": "➖"}[v["status"]]
+        st.markdown(f"- Pair {idx+1}: {icon} 📄 `{pdf_name}` ↔ 📊 `{excel_name}`")
+        if v["status"] == "mismatch":
+            st.caption(f"　　⚠️ PDF shows Vendor `{v['pdf_vc']}` / Part `{v['pdf_pn']}` — "
+                       f"Excel shows Vendor `{v['excel_vc']}` / Part `{v['excel_pn']}`. Please verify this pair.")
+        elif v["status"] == "unverifiable":
+            st.caption("　　➖ Could not extract Vendor Code/Part Number from one or both files — unable to verify.")
+
     if _pairing["unmatched_pdfs"]:
         st.warning(f"Unmatched PDFs (no corresponding Excel): {', '.join(_pairing['unmatched_pdfs'])}")
     if _pairing["unmatched_excels"]:
@@ -1903,32 +1950,136 @@ for _oi, _pid in enumerate(_pair_ids):
         #     with ct: st.session_state["show_confidence"] = st.checkbox("📊 Show Confidence", value=st.session_state.get("show_confidence",True))
         #     with cf: flag = st.radio("Show", ["All rows","Rows with issues","Rows with PDF match","Rows missing PDF match"], horizontal=True, index=0, label_visibility="collapsed")
         #     with cs: search = st.text_input("search", placeholder="🔎 Search…", label_visibility="collapsed", key=f"review_search_{_pid}")
-            with tab_review:
-                    st.markdown("### 🔍 Review & Fix")
-                    ct, cf, cs = st.columns([1,2,3])
-            with ct: 
+            # with tab_review:
+            #         st.markdown("### 🔍 Review & Fix")
+            #         ct, cf, cs = st.columns([1,2,3])
+            #         with ct: 
+            #     st.session_state["show_confidence"] = st.checkbox(
+            #         "📊 Show Confidence", 
+            #         value=st.session_state.get("show_confidence", True),
+            #         key=f"show_conf_{_pid}"
+            #     )
+            # with cf: 
+            #     flag = st.radio(
+            #         "Show", 
+            #         ["All rows","Rows with issues","Rows with PDF match","Rows missing PDF match"], 
+            #         horizontal=True, 
+            #         index=0, 
+            #         label_visibility="collapsed",
+            #         key=f"review_radio_{_pid}"
+            #     )
+            # with cs: 
+            #     search = st.text_input(
+            #         "Search", 
+            #         placeholder="🔎 Search…", 
+            #         label_visibility="collapsed", 
+            #         key=f"review_search_{_pid}"
+            #     )
+            
+            # mask = np.ones(len(work), dtype=bool)
+            # if flag == "Rows with issues":
+            #     ir = {i["row_index"] for i in issues}
+            #     mask = np.array([i in ir for i in range(len(work))])
+            # elif flag == "Rows with PDF match":
+            #     mask &= np.array([bool(str(s).strip()) for s in pdf_spec])
+            # elif flag == "Rows missing PDF match":
+            #     mask &= np.array([not str(s).strip() for s in pdf_spec])
+            
+            # if search.strip():
+            #     s = search.strip().lower()
+            #     mask &= (work["Inspection Item"].astype(str).str.lower().str.contains(s, regex=False) | 
+            #              work["Parameter"].astype(str).str.lower().str.contains(s, regex=False)).to_numpy()
+            
+            # disp = _build_comparison_grid_13col(work, pdf_item, pdf_spec, pdf_method, pdf_sampling, 
+            #                                     pdf_vendor, pdf_part, pdf_model, manual_alignments, pdf_rows)
+            # view_full = disp[mask]
+            # total_rows = len(view_full)
+            
+            # rpp_opts = [25, 50, 100, 200]
+            # # rpp = st.selectbox(
+            # #     "Rows per page", 
+            # #     options=rpp_opts, 
+            # #     index=rpp_opts.index(_pd.get("rows_per_page", 50)), 
+            # #     key=f"rpp_sel_{_pid}"
+            # # )
+            # rpp = st.selectbox("Rows per page", options=rpp_opts, index=rpp_opts.index(_pd.get("rows_per_page",50)), key=f"rpp_sel_{_pid}")
+            # _pd["rows_per_page"] = rpp
+            # tp = max(1, (total_rows + rpp - 1) // rpp)
+            
+            # c1, c2, c3 = st.columns([1, 2, 1])
+            # with c1:
+            #     if st.button("◀ Previous", disabled=_pd.get("page", 1) <= 1):
+            #         _pd["page"] = max(1, _pd.get("page", 1) - 1)
+            #         st.rerun()
+            # with c2:
+            #     _pd["page"] = st.number_input(
+            #         "Page", 
+            #         1, 
+            #         tp, 
+            #         min(tp, _pd.get("page", 1)), 
+            #         1, 
+            #         key=f"page_in_{_pid}", 
+            #         label_visibility="collapsed"
+            #     )
+            # with c3:
+            #     if st.button("Next ▶", disabled=_pd.get("page", 1) >= tp):
+            #         _pd["page"] = min(tp, _pd.get("page", 1) + 1)
+            #         st.rerun()
+            
+            # si = (_pd.get("page", 1) - 1) * rpp
+            # view = view_full.iloc[si:min(si + rpp, total_rows)]
+            # st.caption(f"Rows {si+1}–{min(si+rpp, total_rows)} of {total_rows}")
+            
+            # if st.session_state["show_confidence"]:
+            #     cd = []
+            #     for i in range(len(view)):
+            #         ri = view.index[i]
+            #         rc = {}
+            #         for col in REQUIRED_COLS:
+            #             if col in view.columns:
+            #                 val = str(view.iloc[i][col]) if pd.notna(view.iloc[i][col]) else ""
+            #                 pv_ = pdf_item[ri] if col == "Inspection Item" and ri < len(pdf_item) else (pdf_spec[ri] if col == "Parameter" and ri < len(pdf_spec) else None)
+            #                 rc[col] = calculate_cell_confidence(val, col, pv_)
+            #         sm = get_row_confidence_summary(rc)
+            #         cd.append({"Avg": sm["avg"], "Min": sm["min"], "Needs Review": "⚠️" if sm["needs_review"] else "✅"})
+            #     cdf = pd.DataFrame(cd)
+            #     view = view.copy()
+            #     for col in ["Avg", "Min", "Needs Review"]:
+            #         view.insert(1, f"📊 {col}", cdf[col])
+            #     cfg = _comparison_column_config()
+            #     cfg["📊 Avg"] = st.column_config.NumberColumn("Avg Conf", format="%d%%")
+            #     cfg["📊 Min"] = st.column_config.NumberColumn("Min Conf", format="%d%%")
+            #     cfg["📊 Needs Review"] = st.column_config.TextColumn("Review")
+            #     disabled = list(_PDF_READONLY_COLS) + ["📊 Avg", "📊 Min", "📊 Needs Review"]
+            # else:
+            #     cfg = _comparison_column_config()
+            #     disabled = list(_PDF_READONLY_COLS)
+        with tab_review:
+            st.markdown("### 🔍 Review & Fix")
+            ct, cf, cs = st.columns([1,2,3])
+            with ct:
                 st.session_state["show_confidence"] = st.checkbox(
-                    "📊 Show Confidence", 
+                    "📊 Show Confidence",
                     value=st.session_state.get("show_confidence", True),
                     key=f"show_conf_{_pid}"
                 )
-            with cf: 
+            with cf:
                 flag = st.radio(
-                    "Show", 
-                    ["All rows","Rows with issues","Rows with PDF match","Rows missing PDF match"], 
-                    horizontal=True, 
-                    index=0, 
+                    "Show",
+                    ["All rows","Rows with issues","Rows with PDF match","Rows missing PDF match"],
+                    horizontal=True,
+                    index=0,
                     label_visibility="collapsed",
                     key=f"review_radio_{_pid}"
                 )
-            with cs: 
+            with cs:
                 search = st.text_input(
-                    "Search", 
-                    placeholder="🔎 Search…", 
-                    label_visibility="collapsed", 
+                    "Search",
+                    placeholder="🔎 Search…",
+                    label_visibility="collapsed",
                     key=f"review_search_{_pid}"
                 )
-            
+
             mask = np.ones(len(work), dtype=bool)
             if flag == "Rows with issues":
                 ir = {i["row_index"] for i in issues}
@@ -1937,28 +2088,22 @@ for _oi, _pid in enumerate(_pair_ids):
                 mask &= np.array([bool(str(s).strip()) for s in pdf_spec])
             elif flag == "Rows missing PDF match":
                 mask &= np.array([not str(s).strip() for s in pdf_spec])
-            
+
             if search.strip():
                 s = search.strip().lower()
-                mask &= (work["Inspection Item"].astype(str).str.lower().str.contains(s, regex=False) | 
+                mask &= (work["Inspection Item"].astype(str).str.lower().str.contains(s, regex=False) |
                          work["Parameter"].astype(str).str.lower().str.contains(s, regex=False)).to_numpy()
-            
-            disp = _build_comparison_grid_13col(work, pdf_item, pdf_spec, pdf_method, pdf_sampling, 
+
+            disp = _build_comparison_grid_13col(work, pdf_item, pdf_spec, pdf_method, pdf_sampling,
                                                 pdf_vendor, pdf_part, pdf_model, manual_alignments, pdf_rows)
             view_full = disp[mask]
             total_rows = len(view_full)
-            
+
             rpp_opts = [25, 50, 100, 200]
-            # rpp = st.selectbox(
-            #     "Rows per page", 
-            #     options=rpp_opts, 
-            #     index=rpp_opts.index(_pd.get("rows_per_page", 50)), 
-            #     key=f"rpp_sel_{_pid}"
-            # )
             rpp = st.selectbox("Rows per page", options=rpp_opts, index=rpp_opts.index(_pd.get("rows_per_page",50)), key=f"rpp_sel_{_pid}")
             _pd["rows_per_page"] = rpp
             tp = max(1, (total_rows + rpp - 1) // rpp)
-            
+
             c1, c2, c3 = st.columns([1, 2, 1])
             with c1:
                 if st.button("◀ Previous", disabled=_pd.get("page", 1) <= 1):
@@ -1966,23 +2111,23 @@ for _oi, _pid in enumerate(_pair_ids):
                     st.rerun()
             with c2:
                 _pd["page"] = st.number_input(
-                    "Page", 
-                    1, 
-                    tp, 
-                    min(tp, _pd.get("page", 1)), 
-                    1, 
-                    key=f"page_in_{_pid}", 
+                    "Page",
+                    1,
+                    tp,
+                    min(tp, _pd.get("page", 1)),
+                    1,
+                    key=f"page_in_{_pid}",
                     label_visibility="collapsed"
                 )
             with c3:
                 if st.button("Next ▶", disabled=_pd.get("page", 1) >= tp):
                     _pd["page"] = min(tp, _pd.get("page", 1) + 1)
                     st.rerun()
-            
+
             si = (_pd.get("page", 1) - 1) * rpp
             view = view_full.iloc[si:min(si + rpp, total_rows)]
             st.caption(f"Rows {si+1}–{min(si+rpp, total_rows)} of {total_rows}")
-            
+
             if st.session_state["show_confidence"]:
                 cd = []
                 for i in range(len(view)):
@@ -2007,7 +2152,6 @@ for _oi, _pid in enumerate(_pair_ids):
             else:
                 cfg = _comparison_column_config()
                 disabled = list(_PDF_READONLY_COLS)
-            
             edited = st.data_editor(
                 view, 
                 use_container_width=True, 
