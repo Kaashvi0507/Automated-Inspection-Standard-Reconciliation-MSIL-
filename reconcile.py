@@ -2311,3 +2311,7 @@ for _oi, _pid in enumerate(_pair_ids):
                  file_name="corrected.csv", mime="text/csv", use_container_width=True)
 
                  ##checkkkk
+
+
+
+                 ##python -c "import torch; print('CUDA Available:', torch.cuda.is_available()); print('Device:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'None'); print('VRAM:', torch.cuda.get_device_properties(0).total_memory / 1024**3 if torch.cuda.is_available() else '0')"
