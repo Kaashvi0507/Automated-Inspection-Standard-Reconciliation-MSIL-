@@ -2219,24 +2219,44 @@ for _oi, _pid in enumerate(_pair_ids):
             st.markdown("### ✏️ Edit Excel")
             b1,b2,b3,b4 = st.columns([1,1,1,2])
             with b1:
-                if st.button("💾 Save Changes", type="primary", use_container_width=True):
+                if st.button("💾 Save Changes", type="primary", use_container_width=True, key=f"save_btn_{_pid}"):
                     ok, ni, cr = save_and_validate(work, pdf_vendor, pdf_part, pdf_model)
                     if ok: st.success(f"✅ Saved! {cr} critical."); st.rerun()
             with b2:
-                if st.button("🔄 Re-apply Automation", use_container_width=True):
+                if st.button("🔄 Re-apply Automation", use_container_width=True, key=f"reapply_btn_{_pid}"):
                     wu, ns, fc = reapply_automation(work)
-                    st.session_state["batch"][_pid]["work"] = wu; st.session_state["batch"][_pid]["auto_summary"] = ns; st.success(f"✅ Fixed {fc} cells."); st.rerun()
+                    st.session_state["batch"][_pid]["work"] = wu
+                    st.session_state["batch"][_pid]["auto_summary"] = ns
+                    st.success(f"✅ Fixed {fc} cells.")
+                    st.rerun()
             with b3:
-                if st.button("⭮ Renumber Operations", use_container_width=True):
+                if st.button("⭮ Renumber Operations", use_container_width=True, key=f"renumber_ops_{_pid}"):
                     c = 1
                     for i in range(len(work)):
-                        if _row_has_inspection_content(work.iloc[i]): work.at[work.index[i],"Operation number"] = c; c += 1
-                    st.session_state["batch"][_pid]["work"] = work; st.rerun()
-            with b4: st.caption("💡 Edit any cell, then Save.")
+                        if _row_has_inspection_content(work.iloc[i]):
+                            work.at[work.index[i], "Operation number"] = c
+                            c += 1
+                        st.session_state["batch"][_pid]["work"] = work
+                        st.rerun()
+            with b4:
+                st.caption("💡 Edit any cell, then Save.")
             st.divider()
             c1, c2 = st.columns([1,3])
             ef = c1.radio("Show", ["All rows","Rows with issues"], key=f"edit_filter_{_pid}", label_visibility="collapsed")
             es = c2.text_input("edit_search", placeholder="🔎 Search…", label_visibility="collapsed", key=f"edit_search_{_pid}")
+    
+            em = np.ones(len(work), dtype=bool)
+            if ef == "Rows with issues":
+                ir = {i["row_index"] for i in issues}
+                em = np.array([i in ir for i in range(len(work))])
+            if es.strip():
+                s = es.strip().lower()
+                em &= (work["Inspection Item"].astype(str).str.lower().str.contains(s, regex=False) | 
+               work["Parameter"].astype(str).str.lower().str.contains(s, regex=False)).to_numpy()
+            ev = work[em]
+            ee = st.data_editor(ev[SCHEMA], use_container_width=True, height=520, num_rows="fixed", key=f"edit_grid_{_pid}")
+            if not ee.equals(ev):
+                work = _apply_excel_edits(work, ee)
             em = np.ones(len(work), dtype=bool)
             if ef == "Rows with issues":
                 ir = {i["row_index"] for i in issues}; em = np.array([i in ir for i in range(len(work))])
