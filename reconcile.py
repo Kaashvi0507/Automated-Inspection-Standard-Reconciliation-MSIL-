@@ -62,6 +62,7 @@ def _has(m: str) -> bool:
 import pandas as pd
 import numpy as np
 import pdfplumber
+import torch
 from openpyxl import load_workbook
 import fitz  # PyMuPDF
 
@@ -419,7 +420,11 @@ except NameError: _OCR_CACHE = os.path.join(os.getcwd(), ".ocr_cache")
 def _rapidocr_engine():
     try:
         from rapidocr_onnxruntime import RapidOCR
-        return RapidOCR()
+        # 🔥 Attempt to use GPU. Falls back to CPU if GPU fails.
+        try:
+            return RapidOCR(params={"Global.use_cuda": True})
+        except Exception:
+            return RapidOCR()
     except Exception: return None
 def preprocess_image_for_ocr(img):
     if not CV2_AVAILABLE: return img
@@ -1232,11 +1237,14 @@ def get_all_issues(df, pv, pp, pm, pdf_rows=None, alignment_map=None):
 #     local = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "all-MiniLM-L6-v2")
 #     return SentenceTransformer(local if os.path.isdir(local) else "all-MiniLM-L6-v2")
 @st.cache_resource(show_spinner=False)
-@st.cache_resource(show_spinner=False)
 def _embed_model():
     from sentence_transformers import SentenceTransformer
-    local = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "all-MiniLM-L6-v2")
-    return SentenceTransformer(local if os.path.isdir(local) else "all-MiniLM-L6-v2")
+    # Use the official model from HuggingFace (it will download automatically)
+    model = SentenceTransformer("all-MiniLM-L6-v2")
+    # 🔥 Force the model onto your T1000 GPU
+    if torch.cuda.is_available():
+        model = model.to('cuda')
+    return model
 @st.cache_data(show_spinner=False)
 def _encode_texts(texts, model):
     return model.encode(texts, normalize_embeddings=True, batch_size=64, show_progress_bar=False)
@@ -2254,18 +2262,10 @@ for _oi, _pid in enumerate(_pair_ids):
                 em &= (work["Inspection Item"].astype(str).str.lower().str.contains(s, regex=False) | 
                work["Parameter"].astype(str).str.lower().str.contains(s, regex=False)).to_numpy()
             ev = work[em]
-            ee = st.data_editor(ev[SCHEMA], use_container_width=True, height=520, num_rows="fixed", key=f"edit_grid_{_pid}")
+            # Use a unique key specific to the pair ID (_pid) to avoid StreamlitDuplicateElementKey
+            ee = st.data_editor(ev[SCHEMA], use_container_width=True, height=520, num_rows="fixed", key=f"edit_grid_{_pid}_unique")
             if not ee.equals(ev):
                 work = _apply_excel_edits(work, ee)
-            em = np.ones(len(work), dtype=bool)
-            if ef == "Rows with issues":
-                ir = {i["row_index"] for i in issues}; em = np.array([i in ir for i in range(len(work))])
-            if es.strip():
-                s = es.strip().lower()
-                em &= (work["Inspection Item"].astype(str).str.lower().str.contains(s,regex=False) | work["Parameter"].astype(str).str.lower().str.contains(s,regex=False)).to_numpy()
-            ev = work[em]
-            ee = st.data_editor(ev[SCHEMA], use_container_width=True, height=520, num_rows="fixed", key=f"edit_grid_{_pid}_{idx}")
-            if not ee.equals(ev): work = _apply_excel_edits(work, ee)
         with tab_pdf:
             st.markdown("### 📄 PDF (source of truth)")
             c1,c2,c3 = st.columns([1,2,1])
